@@ -13,24 +13,30 @@ import os
 import re
 from pathlib import Path
 
+try:
+    import xlwings as xw
+    _HAS_XLWINGS = True
+except ImportError:
+    _HAS_XLWINGS = False
+
 sys.path.insert(0, str(Path(__file__).parent))
 from naver_land_scraper import (
-    parse_url, fetch_article, extract_fields,
+    parse_url, extract_fields,
     load_or_create_workbook, append_row, is_duplicate,
-    search_region_articles,
+    search_region_articles, collect_articles_by_url_list,
 )
 
 # ── Palette ────────────────────────────────────────────────────────────────────
-BG        = "#12161F"   # 배경
-SURFACE   = "#1D2330"   # 카드/패널
-INPUT_BG  = "#0C0F16"   # 입력창
-BORDER    = "#2A3140"   # 구분선
-TEXT      = "#DDE3ED"   # 본문
-TEXT_DIM  = "#5C6880"   # 보조
-ACCENT    = "#E8A020"   # 강조 (금)
-SUCCESS   = "#3EC97A"   # 성공
-ERROR     = "#E85050"   # 오류
-INFO      = "#4E9BD4"   # 정보
+BG        = "#0E1218"   # 배경
+SURFACE   = "#161D28"   # 카드/패널
+INPUT_BG  = "#090C12"   # 입력창
+BORDER    = "#1F2A3A"   # 구분선
+TEXT      = "#E2EAF5"   # 본문
+TEXT_DIM  = "#4A5870"   # 보조
+ACCENT    = "#F0A500"   # 강조 (골드)
+SUCCESS   = "#34D079"   # 성공
+ERROR     = "#F06060"   # 오류
+INFO      = "#5A9ED4"   # 정보
 # ──────────────────────────────────────────────────────────────────────────────
 
 FONT_UI   = ("맑은 고딕", 10)
@@ -47,8 +53,8 @@ class _Btn:
         self._enabled = True
         self._primary = primary
         self._bg  = ACCENT if primary else SURFACE
-        self._fg  = "#12161F" if primary else TEXT
-        self._hov = "#C8880A" if primary else BORDER
+        self._fg  = "#0E1218" if primary else TEXT
+        self._hov = "#C87E00" if primary else BORDER
         self._font = ("맑은 고딕", 10, "bold") if primary else FONT_LABEL
 
         self._frame = tk.Frame(parent, bg=self._bg, cursor="hand2", **kw)
@@ -157,8 +163,8 @@ class App:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("네이버 부동산 매물 수집기")
-        self.root.geometry("820x880")
-        self.root.minsize(640, 720)
+        self.root.geometry("860x940")
+        self.root.minsize(660, 740)
         self.root.configure(bg=BG)
         self._selected_regions: set[str] = set()
         self._chip_btns: dict[str, _Btn] = {}
@@ -175,6 +181,10 @@ class App:
         self._f_movein_mo  = tk.StringVar()
         self._f_directions: set[str] = set()
         self._f_dir_btns: dict[str, _Btn] = {}
+        self._f_rent_ratio = tk.IntVar(value=0)   # 기보증금/매매가 최소 비율 (%)
+        self._f_floors: set[str] = set()           # 저/중/고
+        self._f_floor_btns: dict[str, _Btn] = {}
+        self._f_household_min = tk.StringVar()     # 단지 전체 세대수 최소값
         self._filter_open  = False
 
         # macOS 기본 메뉴바 숨기기 방지 (제목 표시줄 유지)
@@ -186,6 +196,9 @@ class App:
         self.excel_path = tk.StringVar(
             value=str(Path(__file__).parent / "네이버_부동산_매물.xlsx")
         )
+        self._pdf_path = tk.StringVar()
+        self._update_pdf_path()
+        self.excel_path.trace_add("write", lambda *_: self._update_pdf_path())
         self.q = queue.Queue()
         self.running = False
 
@@ -195,7 +208,7 @@ class App:
     # ── UI 구성 ────────────────────────────────────────────────────────────────
 
     def _build(self):
-        # ── 전체 페이지 스크롤 컨테이너 (스크롤바 없음, 트랙패드만) ─────────────
+        # ── 전체 페이지 스크롤 컨테이너 ─────────────────────────────────────────
         self._main_canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0)
         self._main_canvas.pack(fill="both", expand=True)
 
@@ -208,53 +221,53 @@ class App:
             self._main_canvas.itemconfig(_win_id, width=e.width)
         root.bind("<Configure>", _on_inner_configure)
         self._main_canvas.bind("<Configure>", _on_canvas_resize)
-
-        # 부드러운 트랙패드 스크롤 — delta 값 그대로 픽셀 단위로 사용
-        def _page_scroll(e):
-            w = e.widget
-            if isinstance(w, tk.Text):
-                return
-            if isinstance(w, tk.Canvas) and w is not self._main_canvas:
-                return
-            self._main_canvas.yview_scroll(int(-e.delta), "pixels")
-        self.root.bind_all("<MouseWheel>", _page_scroll)
+        self.root.unbind_all("<MouseWheel>")
 
         # ── 헤더 ──────────────────────────────────────────────────────────────
         hdr = tk.Frame(root, bg=BG)
-        hdr.pack(fill="x", padx=24, pady=(20, 0))
+        hdr.pack(fill="x", padx=28, pady=(24, 0))
 
-        tk.Label(hdr, text="네이버 부동산", bg=BG, fg=TEXT_DIM,
-                 font=("맑은 고딕", 9)).pack(anchor="w")
-        tk.Label(hdr, text="매물 수집기", bg=BG, fg=TEXT,
-                 font=FONT_HEAD).pack(anchor="w")
+        hdr_left = tk.Frame(hdr, bg=BG)
+        hdr_left.pack(side="left")
+        tk.Label(hdr_left, text="NAVER LAND", bg=BG, fg=TEXT_DIM,
+                 font=("맑은 고딕", 8, "bold")).pack(anchor="w")
+        title_row = tk.Frame(hdr_left, bg=BG)
+        title_row.pack(anchor="w")
+        tk.Label(title_row, text="매물 수집기", bg=BG, fg=TEXT,
+                 font=("맑은 고딕", 17, "bold")).pack(side="left")
+        tk.Label(title_row, text="  전세안고 매매", bg=BG, fg=ACCENT,
+                 font=("맑은 고딕", 10)).pack(side="left", pady=(5, 0))
 
-        # ── 구분선 ────────────────────────────────────────────────────────────
-        tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=24, pady=14)
+        tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=28, pady=(14, 16))
 
-        # ── 지역 전세안고 검색 패널 ───────────────────────────────────────────
-        region_sec = tk.Frame(root, bg=SURFACE, bd=0)
-        region_sec.pack(fill="x", padx=24, pady=(0, 4))
+        # ── 지역 일괄 검색 섹션 ───────────────────────────────────────────────
+        region_sec = tk.Frame(root, bg=SURFACE)
+        region_sec.pack(fill="x", padx=28, pady=(0, 6))
 
-        # 헤더 행
-        region_inner = tk.Frame(region_sec, bg=SURFACE)
-        region_inner.pack(fill="x", padx=14, pady=(10, 6))
-        tk.Label(region_inner, text="지역 전세안고 일괄 검색", bg=SURFACE, fg=TEXT,
+        # 섹션 헤더 (강조 바 + 제목)
+        _rhdr_row = tk.Frame(region_sec, bg=SURFACE)
+        _rhdr_row.pack(fill="x")
+        tk.Frame(_rhdr_row, bg=ACCENT, width=3).pack(side="left", fill="y")
+        _rhdr_inner = tk.Frame(_rhdr_row, bg=SURFACE)
+        _rhdr_inner.pack(side="left", fill="x", expand=True, padx=(12, 12), pady=(10, 8))
+        _rhdr_lrow = tk.Frame(_rhdr_inner, bg=SURFACE)
+        _rhdr_lrow.pack(fill="x")
+        tk.Label(_rhdr_lrow, text="지역 일괄 검색", bg=SURFACE, fg=TEXT,
                  font=("맑은 고딕", 10, "bold")).pack(side="left")
-        tk.Label(region_inner, text="  해당 지역 전세안고 매매 매물 전부 저장",
+        tk.Label(_rhdr_lrow, text="  해당 지역 전세안고 매매 매물 전부 저장",
                  bg=SURFACE, fg=TEXT_DIM, font=FONT_LABEL).pack(side="left")
-        _btn(region_inner, "전체 해제", self._deselect_all).pack(side="right")
-        _btn(region_inner, "서울 전체", self._select_all_seoul).pack(side="right", padx=(0, 6))
+        _btn(_rhdr_lrow, "전체 해제", self._deselect_all).pack(side="right")
+        _btn(_rhdr_lrow, "서울 전체", self._select_all_seoul).pack(side="right", padx=(0, 6))
 
-        # 지역 칩 버튼 — 스크롤 가능한 Canvas
+        # 구 칩 버튼
         chips_inner = tk.Frame(region_sec, bg=SURFACE)
-        chips_inner.pack(fill="x", padx=14, pady=(0, 4))
+        chips_inner.pack(fill="x", padx=15, pady=(0, 4))
 
         def _add_chip_section(parent, title, regions):
             hrow = tk.Frame(parent, bg=SURFACE)
-            hrow.pack(fill="x", pady=(6, 2))
+            hrow.pack(fill="x", pady=(4, 2))
             tk.Label(hrow, text=title, bg=SURFACE, fg=TEXT_DIM,
                      font=("맑은 고딕", 8, "bold")).pack(side="left")
-
             COLS = 8
             for r_start in range(0, len(regions), COLS):
                 row_f = tk.Frame(parent, bg=SURFACE)
@@ -269,7 +282,7 @@ class App:
         self._dong_chips_open = True
 
         dong_hdr = tk.Frame(self._dong_section, bg=SURFACE)
-        dong_hdr.pack(fill="x", padx=14, pady=(6, 2))
+        dong_hdr.pack(fill="x", padx=15, pady=(6, 2))
         self._dong_title_lbl = tk.Label(
             dong_hdr, text="", bg=SURFACE, fg=TEXT_DIM,
             font=("맑은 고딕", 8, "bold"),
@@ -281,33 +294,34 @@ class App:
         self._dong_toggle_btn.pack(side="right", padx=(0, 6))
 
         self._dong_inner_sep = tk.Frame(self._dong_section, bg=BORDER, height=1)
-        self._dong_inner_sep.pack(fill="x", padx=14)
+        self._dong_inner_sep.pack(fill="x", padx=15)
 
         self._dong_chips_frame = tk.Frame(self._dong_section, bg=SURFACE)
-        self._dong_chips_frame.pack(fill="x", padx=14, pady=(4, 6))
+        self._dong_chips_frame.pack(fill="x", padx=15, pady=(4, 6))
 
-        # 구분선 (동 패널 아래) — 동 패널이 나타날 때 filter_sec 앞에 삽입됨
+        # 동 패널이 나타날 때 filter_sec 앞에 삽입되는 구분선
         self._dong_sep = tk.Frame(region_sec, bg=BORDER, height=1)
 
-        # ── 필터 설정 (region_sec 내부, 검색바 위) ───────────────────────────
-        tk.Frame(region_sec, bg=BORDER, height=1).pack(fill="x", padx=14, pady=(4, 0))
+        # ── 필터 설정 ─────────────────────────────────────────────────────────
+        tk.Frame(region_sec, bg=BORDER, height=1).pack(fill="x", padx=15, pady=(2, 0))
 
         self._filter_sec = tk.Frame(region_sec, bg=SURFACE)
         self._filter_sec.pack(fill="x")
 
-        # 필터 헤더 (항상 표시)
         flt_hdr = tk.Frame(self._filter_sec, bg=SURFACE)
-        flt_hdr.pack(fill="x", padx=14, pady=(6, 4))
-        tk.Label(flt_hdr, text="필터 설정", bg=SURFACE, fg=TEXT,
+        flt_hdr.pack(fill="x", padx=15, pady=(8, 4))
+        tk.Label(flt_hdr, text="필터", bg=SURFACE, fg=TEXT,
                  font=("맑은 고딕", 10, "bold")).pack(side="left")
         tk.Label(flt_hdr, text="  비워두면 제한 없음", bg=SURFACE, fg=TEXT_DIM,
                  font=FONT_LABEL).pack(side="left")
         _btn(flt_hdr, "초기화", self._clear_filters).pack(side="right")
-        self._filter_toggle_btn = _btn(flt_hdr, "▼ 펼치기", self._toggle_filter)
+        self._filter_toggle_btn = _btn(flt_hdr, "▲ 접기", self._toggle_filter)
         self._filter_toggle_btn.pack(side="right", padx=(0, 6))
 
-        # 필터 본문 (접혀있음)
+        # 필터 본문 — 기본 열림
         self._filter_body = tk.Frame(self._filter_sec, bg=SURFACE)
+        self._filter_body.pack(fill="x")
+        self._filter_open = True
 
         def _fe(parent, var, w=7):
             wrap = tk.Frame(parent, bg=BORDER, bd=1)
@@ -323,7 +337,7 @@ class App:
                      font=FONT_LABEL).pack(side="left", padx=(4, 0))
 
         r1 = tk.Frame(self._filter_body, bg=SURFACE)
-        r1.pack(fill="x", padx=14, pady=(4, 3))
+        r1.pack(fill="x", padx=15, pady=(2, 2))
         tk.Label(r1, text="매매가", bg=SURFACE, fg=TEXT,
                  font=FONT_LABEL, width=8, anchor="w").pack(side="left")
         _fe(r1, self._f_price_min)
@@ -332,16 +346,16 @@ class App:
         _lbl(r1, "억 이하")
 
         r2 = tk.Frame(self._filter_body, bg=SURFACE)
-        r2.pack(fill="x", padx=14, pady=3)
+        r2.pack(fill="x", padx=15, pady=2)
         tk.Label(r2, text="전용면적", bg=SURFACE, fg=TEXT,
                  font=FONT_LABEL, width=8, anchor="w").pack(side="left")
         _fe(r2, self._f_area_min)
-        _lbl(r2, "㎡ 이상  ~")
+        _lbl(r2, "평 이상  ~")
         _fe(r2, self._f_area_max)
-        _lbl(r2, "㎡ 이하")
+        _lbl(r2, "평 이하")
 
         r3 = tk.Frame(self._filter_body, bg=SURFACE)
-        r3.pack(fill="x", padx=14, pady=3)
+        r3.pack(fill="x", padx=15, pady=2)
         tk.Label(r3, text="입주가능일", bg=SURFACE, fg=TEXT,
                  font=FONT_LABEL, width=8, anchor="w").pack(side="left")
         _fe(r3, self._f_movein_yr, w=6)
@@ -350,16 +364,52 @@ class App:
         _lbl(r3, "월 이후")
 
         r4 = tk.Frame(self._filter_body, bg=SURFACE)
-        r4.pack(fill="x", padx=14, pady=(3, 8))
+        r4.pack(fill="x", padx=15, pady=2)
         tk.Label(r4, text="방향", bg=SURFACE, fg=TEXT,
                  font=FONT_LABEL, width=8, anchor="w").pack(side="left")
         for d in ("남향", "남동향", "남서향", "동향", "서향", "북향", "북동향", "북서향"):
             self._f_dir_btns[d] = self._make_dir_chip(r4, d)
 
-        # 직접 입력 행
+        r5 = tk.Frame(self._filter_body, bg=SURFACE)
+        r5.pack(fill="x", padx=15, pady=2)
+        tk.Label(r5, text="기보증금 비율", bg=SURFACE, fg=TEXT,
+                 font=FONT_LABEL, width=8, anchor="w").pack(side="left")
+        self._f_ratio_lbl = tk.Label(r5, text="제한 없음", bg=SURFACE, fg=ACCENT,
+                                     font=("맑은 고딕", 9, "bold"), width=9, anchor="w")
+        self._f_ratio_lbl.pack(side="left", padx=(6, 0))
+        slider_frame = tk.Frame(r5, bg=SURFACE)
+        slider_frame.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        self._f_ratio_slider = tk.Scale(
+            slider_frame,
+            variable=self._f_rent_ratio,
+            from_=0, to=100, orient="horizontal",
+            bg=SURFACE, fg=TEXT, troughcolor=INPUT_BG,
+            highlightthickness=0, bd=0,
+            activebackground=ACCENT, sliderrelief="flat",
+            font=FONT_LABEL, showvalue=False,
+            command=self._on_ratio_change,
+        )
+        self._f_ratio_slider.pack(fill="x", expand=True)
+        _lbl(r5, "% 이상")
+
+        r6 = tk.Frame(self._filter_body, bg=SURFACE)
+        r6.pack(fill="x", padx=15, pady=2)
+        tk.Label(r6, text="해당층", bg=SURFACE, fg=TEXT,
+                 font=FONT_LABEL, width=8, anchor="w").pack(side="left")
+        for fl in ("저층", "중층", "고층"):
+            self._f_floor_btns[fl] = self._make_floor_chip(r6, fl)
+
+        r7 = tk.Frame(self._filter_body, bg=SURFACE)
+        r7.pack(fill="x", padx=15, pady=(2, 10))
+        tk.Label(r7, text="단지 세대수", bg=SURFACE, fg=TEXT,
+                 font=FONT_LABEL, width=8, anchor="w").pack(side="left")
+        _fe(r7, self._f_household_min)
+        _lbl(r7, "세대 이상")
+
+        # 지역 직접 입력 + 검색 버튼
         self._region_row = tk.Frame(region_sec, bg=SURFACE)
         region_row = self._region_row
-        region_row.pack(fill="x", padx=14, pady=(4, 10))
+        region_row.pack(fill="x", padx=15, pady=(2, 12))
 
         region_entry_wrap = tk.Frame(region_row, bg=BORDER, bd=1)
         region_entry_wrap.pack(side="left", fill="x", expand=True, padx=(0, 8))
@@ -382,38 +432,44 @@ class App:
         self.region_btn = _btn(region_row, "검색 시작", self._start_region, primary=True)
         self.region_btn.pack(side="left")
 
-        # 구분선 "또는"
+        # ── "또는" 구분선 ─────────────────────────────────────────────────────
         or_frame = tk.Frame(root, bg=BG)
-        or_frame.pack(fill="x", padx=24, pady=6)
+        or_frame.pack(fill="x", padx=28, pady=(8, 8))
         tk.Frame(or_frame, bg=BORDER, height=1).pack(side="left", fill="x", expand=True)
         tk.Label(or_frame, text="  또는  ", bg=BG, fg=TEXT_DIM, font=FONT_LABEL).pack(side="left")
         tk.Frame(or_frame, bg=BORDER, height=1).pack(side="left", fill="x", expand=True)
 
-        # ── URL 입력 패널 ─────────────────────────────────────────────────────
-        section = tk.Frame(root, bg=BG)
-        section.pack(fill="x", padx=24)
+        # ── URL 직접 입력 섹션 ────────────────────────────────────────────────
+        url_sec = tk.Frame(root, bg=SURFACE)
+        url_sec.pack(fill="x", padx=28)
 
-        row_label = tk.Frame(section, bg=BG)
-        row_label.pack(fill="x", pady=(0, 6))
-        tk.Label(row_label, text="매물 URL", bg=BG, fg=TEXT,
+        _uhdr_row = tk.Frame(url_sec, bg=SURFACE)
+        _uhdr_row.pack(fill="x")
+        tk.Frame(_uhdr_row, bg=INFO, width=3).pack(side="left", fill="y")
+        _uhdr_inner = tk.Frame(_uhdr_row, bg=SURFACE)
+        _uhdr_inner.pack(side="left", fill="x", expand=True, padx=(12, 12), pady=(10, 8))
+        _uhdr_lrow = tk.Frame(_uhdr_inner, bg=SURFACE)
+        _uhdr_lrow.pack(fill="x")
+        tk.Label(_uhdr_lrow, text="매물 URL 직접 입력", bg=SURFACE, fg=TEXT,
                  font=("맑은 고딕", 10, "bold")).pack(side="left")
-        tk.Label(row_label, text="  여러 개는 줄바꿈으로 구분", bg=BG,
+        tk.Label(_uhdr_lrow, text="  여러 개는 줄바꿈으로 구분", bg=SURFACE,
                  fg=TEXT_DIM, font=FONT_LABEL).pack(side="left")
-        _btn(row_label, "붙여넣기", self._paste).pack(side="right")
-        _btn(row_label, "지우기", self._clear_input).pack(side="right", padx=(0, 6))
+        _btn(_uhdr_lrow, "붙여넣기", self._paste).pack(side="right")
+        _btn(_uhdr_lrow, "지우기", self._clear_input).pack(side="right", padx=(0, 6))
 
-        # 입력창 + 스크롤바
-        url_wrap = tk.Frame(section, bg=BORDER, bd=1)
+        url_entry_outer = tk.Frame(url_sec, bg=SURFACE)
+        url_entry_outer.pack(fill="x", padx=15, pady=(0, 12))
+        url_wrap = tk.Frame(url_entry_outer, bg=BORDER, bd=1)
         url_wrap.pack(fill="x")
 
         self.url_text = tk.Text(
-            url_wrap, height=6,
+            url_wrap, height=5,
             bg=INPUT_BG, fg=TEXT,
             insertbackground=ACCENT,
             font=FONT_MONO,
             bd=0, padx=10, pady=8,
             wrap="none", relief="flat",
-            selectbackground=ACCENT, selectforeground="#12161F",
+            selectbackground=ACCENT, selectforeground="#0E1218",
         )
         url_sb = tk.Scrollbar(url_wrap, orient="vertical",
                               command=self.url_text.yview, bg=SURFACE)
@@ -421,68 +477,92 @@ class App:
         self.url_text.pack(side="left", fill="both", expand=True)
         url_sb.pack(side="right", fill="y")
 
-        # Ctrl+키 (Windows/Linux) + Cmd+키 (macOS = Meta)
         for key, fn in [("v", self._paste), ("c", self._copy),
                         ("a", self._select_all), ("x", self._cut)]:
             self.url_text.bind(f"<Control-{key}>", fn)
-            self.url_text.bind(f"<Meta-{key}>", fn)    # macOS Cmd+키
+            self.url_text.bind(f"<Meta-{key}>", fn)
 
-        # 우클릭 컨텍스트 메뉴
         self._ctx_menu = tk.Menu(self.root, tearoff=0, bg=SURFACE, fg=TEXT,
-                                  activebackground=ACCENT, activeforeground="#12161F")
+                                  activebackground=ACCENT, activeforeground="#0E1218")
         self._ctx_menu.add_command(label="붙여넣기  Ctrl+V", command=self._paste)
         self._ctx_menu.add_command(label="복사      Ctrl+C", command=self._copy)
         self._ctx_menu.add_command(label="잘라내기  Ctrl+X", command=self._cut)
         self._ctx_menu.add_separator()
         self._ctx_menu.add_command(label="전체 선택  Ctrl+A", command=self._select_all)
         self._ctx_menu.add_command(label="전체 지우기", command=self._clear_input)
-        self.url_text.bind("<Button-2>", self._show_ctx)   # 트랙패드 우클릭
-        self.url_text.bind("<Button-3>", self._show_ctx)   # 마우스 우클릭
-        self.url_text.bind("<Control-Button-1>", self._show_ctx)  # Ctrl+클릭 (macOS)
+        self.url_text.bind("<Button-2>", self._show_ctx)
+        self.url_text.bind("<Button-3>", self._show_ctx)
+        self.url_text.bind("<Control-Button-1>", self._show_ctx)
 
-        # ── 저장 위치 + 버튼 행 ───────────────────────────────────────────────
+        # ── 저장 위치 + 액션 버튼 행 ──────────────────────────────────────────
         ctrl = tk.Frame(root, bg=BG)
-        ctrl.pack(fill="x", padx=24, pady=12)
+        ctrl.pack(fill="x", padx=28, pady=(12, 10))
 
-        tk.Label(ctrl, text="저장 위치", bg=BG, fg=TEXT_DIM,
-                 font=FONT_LABEL).pack(side="left")
-
+        # 저장 위치 (왼쪽) — 한 줄: [레이블] [경로] [변경] [새파일]
+        path_frame = tk.Frame(ctrl, bg=BG)
+        path_frame.pack(side="left", fill="x", expand=True)
+        tk.Label(path_frame, text="저장 위치", bg=BG, fg=TEXT,
+                 font=("맑은 고딕", 10, "bold")).pack(side="left", padx=(0, 8))
         self.path_lbl = tk.Label(
-            ctrl, textvariable=self.excel_path,
+            path_frame, textvariable=self.excel_path,
             bg=BG, fg=TEXT_DIM, font=FONT_LABEL,
-            cursor="hand2",
+            cursor="hand2", anchor="w",
         )
-        self.path_lbl.pack(side="left", padx=(6, 0))
-        self.path_lbl.bind("<Button-1>", lambda e: self._choose_path())
+        self.path_lbl.pack(side="left")
+        self.path_lbl.bind("<Button-1>", lambda _: self._choose_path())
+        _btn(path_frame, "변경", self._choose_path).pack(side="left", padx=(8, 0))
+        _btn(path_frame, "새파일", self._new_file).pack(side="left", padx=(4, 0))
 
-        _btn(ctrl, "변경", self._choose_path).pack(side="left", padx=(8, 0))
-        _btn(ctrl, "새파일", self._new_file).pack(side="left", padx=(6, 0))
+        # 액션 버튼 (오른쪽)
+        action_frame = tk.Frame(ctrl, bg=BG)
+        action_frame.pack(side="right", anchor="s")
+        _btn(action_frame, "Excel 열기", self._open_excel).pack(side="left", padx=(0, 8))
+        self.save_btn = _btn(action_frame, "저장하기", self._start, primary=True)
+        self.save_btn.pack(side="left")
 
-        self.save_btn = _btn(ctrl, "저장하기", self._start, primary=True)
-        self.save_btn.pack(side="right")
+        # ── PDF 내보내기 섹션 ─────────────────────────────────────────────
+        pdf_outer = tk.Frame(root, bg=BG)
+        pdf_outer.pack(fill="x", padx=28, pady=(4, 8))
 
-        _btn(ctrl, "엑셀 열기", self._open_excel).pack(side="right", padx=(0, 8))
+        pdf_hdr = tk.Frame(pdf_outer, bg=BG)
+        pdf_hdr.pack(fill="x", pady=(0, 4))
+        tk.Label(pdf_hdr, text="PDF 내보내기", bg=BG, fg=TEXT,
+                 font=("맑은 고딕", 10, "bold")).pack(side="left")
+        tk.Label(pdf_hdr, text="  A4 가로 · 좁은 여백 · 너비 맞춤",
+                 bg=BG, fg=TEXT_DIM, font=FONT_LABEL).pack(side="left")
+
+        pdf_ctrl = tk.Frame(pdf_outer, bg=BG)
+        pdf_ctrl.pack(fill="x")
+        tk.Label(pdf_ctrl, textvariable=self._pdf_path,
+                 bg=BG, fg=TEXT_DIM, font=FONT_LABEL, anchor="w").pack(
+                     side="left", fill="x", expand=True)
+        self.pdf_btn = _btn(pdf_ctrl, "PDF 저장하기", self._export_pdf, primary=True)
+        self.pdf_btn.pack(side="right")
+        _btn(pdf_ctrl, "PDF 열기", self._open_pdf).pack(side="right", padx=(0, 6))
 
         # ── 구분선 ────────────────────────────────────────────────────────────
-        tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=24)
+        tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=28, pady=(2, 0))
 
-        # ── 로그 영역 ─────────────────────────────────────────────────────────
-        log_hdr = tk.Frame(root, bg=BG)
-        log_hdr.pack(fill="x", padx=24, pady=(10, 6))
+        # ── 수집 로그 ─────────────────────────────────────────────────────────
+        log_outer = tk.Frame(root, bg=BG)
+        log_outer.pack(fill="x", padx=28, pady=(12, 24))
 
+        log_hdr = tk.Frame(log_outer, bg=BG)
+        log_hdr.pack(fill="x", pady=(0, 6))
         tk.Label(log_hdr, text="수집 로그", bg=BG, fg=TEXT,
                  font=("맑은 고딕", 10, "bold")).pack(side="left")
         _btn(log_hdr, "지우기", self._clear).pack(side="right")
+        _btn(log_hdr, "복사", self._copy_log).pack(side="right", padx=(0, 6))
 
-        log_wrap = tk.Frame(root, bg=BORDER, bd=1)
-        log_wrap.pack(fill="x", padx=24, pady=(0, 20))
+        log_wrap = tk.Frame(log_outer, bg=BORDER, bd=1)
+        log_wrap.pack(fill="x")
 
         self.log = tk.Text(
             log_wrap,
             bg=INPUT_BG, fg=TEXT,
             font=FONT_MONO,
             bd=0, padx=12, pady=10,
-            height=8,
+            height=10,
             state="disabled", wrap="word", relief="flat",
         )
         log_sb = tk.Scrollbar(log_wrap, orient="vertical",
@@ -491,7 +571,6 @@ class App:
         self.log.pack(side="left", fill="both", expand=True)
         log_sb.pack(side="right", fill="y")
 
-        # 로그 색상 태그
         self.log.tag_config("success", foreground=SUCCESS)
         self.log.tag_config("error",   foreground=ERROR)
         self.log.tag_config("info",    foreground=INFO)
@@ -563,6 +642,13 @@ class App:
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
 
+    def _copy_log(self):
+        text = self.log.get("1.0", "end").strip()
+        if text:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self._log("로그가 클립보드에 복사되었습니다.", "dim")
+
     # ── 지역 칩 ───────────────────────────────────────────────────────────────
 
     def _add_chip(self, parent, name: str):
@@ -573,7 +659,7 @@ class App:
                 btn.config(bg=SURFACE, fg=TEXT_DIM)
             else:
                 self._selected_regions.add(name)
-                btn.config(bg=ACCENT, fg="#12161F")
+                btn.config(bg=ACCENT, fg="#0E1218")
             self._show_dong_for(name)
 
         btn = _Btn(parent, name, toggle)
@@ -586,7 +672,7 @@ class App:
         for name in SEOUL_REGIONS:
             self._selected_regions.add(name)
             if name in self._chip_btns:
-                self._chip_btns[name].config(bg=ACCENT, fg="#12161F")
+                self._chip_btns[name].config(bg=ACCENT, fg="#0E1218")
 
     def _deselect_all(self):
         for name in list(self._selected_regions):
@@ -658,12 +744,12 @@ class App:
                 btn.config(bg=SURFACE, fg=TEXT_DIM)
             else:
                 self._selected_dong.add(name)
-                btn.config(bg=INFO, fg="#12161F")
+                btn.config(bg=INFO, fg="#0E1218")
 
         btn = _Btn(parent, name, toggle)
         btn._lbl.config(padx=8, pady=3, font=("맑은 고딕", 9))
         if selected:
-            btn.config(bg=INFO, fg="#12161F")
+            btn.config(bg=INFO, fg="#0E1218")
         else:
             btn.config(fg=TEXT_DIM)
         btn.pack(side="left", padx=2, pady=1)
@@ -683,7 +769,7 @@ class App:
     def _select_all_dong(self):
         for name, btn in self._dong_chip_btns.items():
             self._selected_dong.add(name)
-            btn.config(bg=INFO, fg="#12161F")
+            btn.config(bg=INFO, fg="#0E1218")
 
     def _deselect_all_dong(self):
         for name, btn in self._dong_chip_btns.items():
@@ -693,6 +779,24 @@ class App:
 
     # ── 필터 ─────────────────────────────────────────────────────────────────
 
+    def _on_ratio_change(self, val=None):
+        v = self._f_rent_ratio.get()
+        self._f_ratio_lbl.config(text="제한 없음" if v == 0 else f"{v}% 이상")
+
+    def _make_floor_chip(self, parent, name: str) -> "_Btn":
+        def toggle():
+            if name in self._f_floors:
+                self._f_floors.discard(name)
+                btn.config(bg=SURFACE, fg=TEXT_DIM)
+            else:
+                self._f_floors.add(name)
+                btn.config(bg=SUCCESS, fg="#0E1218")
+        btn = _Btn(parent, name, toggle)
+        btn._lbl.config(padx=10, pady=3, font=("맑은 고딕", 9))
+        btn.config(fg=TEXT_DIM)
+        btn.pack(side="left", padx=2, pady=1)
+        return btn
+
     def _make_dir_chip(self, parent, name: str) -> "_Btn":
         def toggle():
             if name in self._f_directions:
@@ -700,7 +804,7 @@ class App:
                 btn.config(bg=SURFACE, fg=TEXT_DIM)
             else:
                 self._f_directions.add(name)
-                btn.config(bg="#4E9BD4", fg="#12161F")
+                btn.config(bg=INFO, fg="#0E1218")
         btn = _Btn(parent, name, toggle)
         btn._lbl.config(padx=8, pady=3, font=("맑은 고딕", 9))
         btn.config(fg=TEXT_DIM)
@@ -719,11 +823,17 @@ class App:
     def _clear_filters(self):
         for v in (self._f_price_min, self._f_price_max,
                   self._f_area_min, self._f_area_max,
-                  self._f_movein_yr, self._f_movein_mo):
+                  self._f_movein_yr, self._f_movein_mo,
+                  self._f_household_min):
             v.set("")
         for btn in self._f_dir_btns.values():
             btn.config(bg=SURFACE, fg=TEXT_DIM)
         self._f_directions.clear()
+        self._f_rent_ratio.set(0)
+        self._f_ratio_lbl.config(text="제한 없음")
+        for btn in self._f_floor_btns.values():
+            btn.config(bg=SURFACE, fg=TEXT_DIM)
+        self._f_floors.clear()
 
     def _get_filters(self) -> dict:
         def _int(v):
@@ -733,14 +843,26 @@ class App:
             try: return float(v.get().strip())
             except: return None
         return {
-            "price_min":  (_float(self._f_price_min) or 0) * 10000 or None,
-            "price_max":  (_float(self._f_price_max) or 0) * 10000 or None,
-            "area_min":   _float(self._f_area_min),
-            "area_max":   _float(self._f_area_max),
-            "movein_yr":  _int(self._f_movein_yr),
-            "movein_mo":  _int(self._f_movein_mo) or 1,
-            "directions": set(self._f_directions),
+            "price_min":     (_float(self._f_price_min) or 0) * 10000 or None,
+            "price_max":     (_float(self._f_price_max) or 0) * 10000 or None,
+            "area_min":      _float(self._f_area_min),
+            "area_max":      _float(self._f_area_max),
+            "movein_yr":     self._parse_year(self._f_movein_yr.get()),
+            "movein_mo":     _int(self._f_movein_mo) or 1,
+            "directions":    set(self._f_directions),
+            "rent_ratio":    self._f_rent_ratio.get(),   # 0 = 제한 없음
+            "floors":        set(self._f_floors),
+            "household_min": _int(self._f_household_min),
         }
+
+    @staticmethod
+    def _parse_year(s: str):
+        """'2027' → 2027, '27' → 2027, 빈값 → None."""
+        try:
+            yr = int(str(s).strip())
+            return yr + 2000 if yr < 100 else yr
+        except (ValueError, TypeError):
+            return None
 
     @staticmethod
     def _parse_price(s: str) -> float:
@@ -780,13 +902,13 @@ class App:
 
         # 전용면적
         if f["area_min"] or f["area_max"]:
-            area_s = str(fields.get("area_exclusive", "") or "").replace("㎡", "")
+            area_s = str(fields.get("area_exclusive", "") or "").replace("평", "")
             try:
                 area = float(area_s)
                 if f["area_min"] and area < f["area_min"]:
-                    return False, f"전용 {area}㎡ < {self._f_area_min.get()}㎡"
+                    return False, f"전용 {area}평 < {self._f_area_min.get()}평"
                 if f["area_max"] and area > f["area_max"]:
-                    return False, f"전용 {area}㎡ > {self._f_area_max.get()}㎡"
+                    return False, f"전용 {area}평 > {self._f_area_max.get()}평"
             except (ValueError, TypeError):
                 pass
 
@@ -801,6 +923,52 @@ class App:
             direction = str(fields.get("direction", "") or "")
             if direction and direction not in f["directions"]:
                 return False, f"방향 {direction}"
+
+        # 기보증금 비율 (기보증금 / 매매가 × 100 ≥ 설정값)
+        if f["rent_ratio"] > 0:
+            price = self._parse_price(fields.get("price_main", ""))
+            rent_s = str(fields.get("rent_price", "") or "")
+            # "7억 9,000 (2026.06. 거래)" → 앞부분만 파싱
+            rent = self._parse_price(rent_s.split("(")[0])
+            if price > 0 and rent > 0:
+                ratio = rent / price * 100
+                if ratio < f["rent_ratio"]:
+                    return False, f"기보증금 비율 {ratio:.0f}% < {f['rent_ratio']}%"
+            elif price > 0 and rent == 0:
+                return False, "기보증금 없음"
+
+        # 해당층 (저/중/고)
+        if f["floors"]:
+            floor_s = str(fields.get("floor", "") or "")
+            # "5/15" 형태에서 해당층 추출
+            m = re.match(r"(\d+)/(\d+)", floor_s)
+            if m:
+                cur, total = int(m.group(1)), int(m.group(2))
+                if total > 0:
+                    ratio = cur / total
+                    if ratio <= 0.33:
+                        floor_type = "저층"
+                    elif ratio <= 0.66:
+                        floor_type = "중층"
+                    else:
+                        floor_type = "고층"
+                    if floor_type not in f["floors"]:
+                        return False, f"{floor_type} 제외"
+            elif floor_s:
+                # "저층"/"중층"/"고층" 텍스트가 직접 있는 경우
+                matched = any(fl in floor_s for fl in f["floors"])
+                if not matched:
+                    return False, f"층 '{floor_s}' 제외"
+
+        # 단지 세대수
+        if f["household_min"]:
+            household_str = str(fields.get("household_by_type", "") or "")
+            total_str = household_str.split("세대")[0]
+            try:
+                if int(total_str) < f["household_min"]:
+                    return False, f"단지 세대수 {total_str}세대 < {f['household_min']}세대"
+            except (ValueError, TypeError):
+                pass
 
         return True, ""
 
@@ -901,6 +1069,49 @@ class App:
 
     # ── 액션 ──────────────────────────────────────────────────────────────────
 
+    def _update_pdf_path(self):
+        pdf = Path(self.excel_path.get()).with_suffix(".pdf")
+        self._pdf_path.set(str(pdf))
+
+    def _export_pdf(self):
+        if not _HAS_XLWINGS:
+            messagebox.showerror("패키지 없음", "xlwings가 설치되지 않았습니다.\npip3 install xlwings")
+            return
+        excel = Path(self.excel_path.get())
+        if not excel.exists():
+            messagebox.showwarning("파일 없음",
+                                   f"저장된 엑셀 파일이 없습니다.\n\n{excel}")
+            return
+        pdf = excel.with_suffix(".pdf")
+        self._log(f"\nPDF 변환 시작 → {pdf.name}", "info")
+        self.pdf_btn.config(state="disabled", text="변환 중…")
+
+        def run():
+            try:
+                app = xw.App(visible=False)
+                try:
+                    wb = app.books.open(str(excel))
+                    for sheet in wb.sheets:
+                        ps = sheet.api.page_setup
+                        ps.orientation = 2          # xlLandscape
+                        ps.fit_to_pages_wide = 1
+                        ps.fit_to_pages_tall = False
+                        # 좁은 여백: 0.25인치 좌우, 0.5인치 상하
+                        pts = app.api.inches_to_points
+                        ps.left_margin   = pts(0.25)
+                        ps.right_margin  = pts(0.25)
+                        ps.top_margin    = pts(0.5)
+                        ps.bottom_margin = pts(0.5)
+                    wb.to_pdf(str(pdf))
+                    wb.close()
+                    self.q.put(("pdf_done", str(pdf), None))
+                finally:
+                    app.quit()
+            except Exception as e:
+                self.q.put(("pdf_error", str(e), None))
+
+        threading.Thread(target=run, daemon=True).start()
+
     def _choose_path(self):
         p = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
@@ -935,6 +1146,19 @@ class App:
         else:
             subprocess.run(["xdg-open", str(path)])
 
+    def _open_pdf(self):
+        path = Path(self._pdf_path.get())
+        if not path.exists():
+            messagebox.showwarning("파일 없음",
+                                   f"아직 저장된 PDF가 없습니다.\n먼저 PDF 저장하기를 눌러주세요.\n\n{path}")
+            return
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)])
+        elif sys.platform == "win32":
+            os.startfile(str(path))
+        else:
+            subprocess.run(["xdg-open", str(path)])
+
     def _start(self):
         if self.running:
             return
@@ -959,53 +1183,53 @@ class App:
         q = self.q
 
         def log(msg, tag="dim"):
-            # 메시지 내용에 따라 태그 자동 결정
-            if "브라우저로 자동 전환" in msg or "브라우저로 페이지" in msg:
+            if any(k in msg for k in ["완료", "수집", "인증"]):
                 tag = "info"
-            elif "서버 요청 제한" in msg:
-                tag = "dim"
             q.put(("log", msg, tag))
 
-        log(f"\n── {len(urls)}개 URL 처리 시작 {'─' * 30}", "accent")
+        log(f"\n── URL 입력 ({len(urls)}개) {'─' * 32}", "accent")
+
+        excel = Path(self.excel_path.get())
+        wb, ws = load_or_create_workbook(excel)
 
         ok = skip = fail = filtered = 0
 
-        for i, url in enumerate(urls, 1):
-            short = url[:70] + ("…" if len(url) > 70 else "")
-            log(f"\n[{i}/{len(urls)}]  {short}", "dim")
-
-            # 1. URL 파싱
+        # 1. 이미 등록된 매물 사전 제거
+        urls_to_fetch = []
+        for url in urls:
             try:
-                article_no, complex_no = parse_url(url)
+                article_no, _ = parse_url(url)
             except ValueError as e:
                 log(f"  ✗ URL 오류: {e}", "error")
                 fail += 1
                 continue
-
-            # 2. 중복 확인
-            excel = Path(self.excel_path.get())
-            wb, ws = load_or_create_workbook(excel)
             if is_duplicate(ws, article_no):
-                log(f"  → 이미 등록된 매물 — 건너뜀  (매물번호 {article_no})", "dim")
+                log(f"  → 이미 등록된 매물 — 건너뜀  ({article_no})", "dim")
                 skip += 1
-                continue
+            else:
+                urls_to_fetch.append(url)
 
-            # 3. 데이터 수집
-            log(f"  데이터 수집 중…  (매물번호 {article_no})", "dim")
-            try:
-                data = fetch_article(
-                    article_no, complex_no, url,
-                    log=lambda msg: log(f"  {msg}", "dim"),
-                )
-            except RuntimeError as e:
-                log(f"  ✗ 수집 실패: {e}", "error")
-                fail += 1
-                continue
+        if not urls_to_fetch:
+            log(f"  저장 {ok}건 / 중복 {skip}건 / 필터 {filtered}건", "info")
+            log(f"\n── 완료: 저장 {ok}건 / 중복 건너뜀 {skip}건  {'─' * 22}", "accent")
+            q.put(("done", None, None))
+            return
 
-            # 4. 필드 추출
-            fields = extract_fields(data, article_no, url)
+        # 2. 수집 (지역 검색과 동일한 방식)
+        try:
+            articles = collect_articles_by_url_list(urls_to_fetch, log=log)
+        except RuntimeError as e:
+            log(f"  ✗ 수집 실패: {e}", "error")
+            fail += len(urls_to_fetch)
+            log(f"  저장 {ok}건 / 중복 {skip}건 / 필터 {filtered}건", "info")
+            log(f"\n── 완료: 저장 {ok}건 / 중복 건너뜀 {skip}건  {'─' * 22}", "accent")
+            q.put(("done", None, None))
+            return
 
-            # 단지명+층 기반 중복 재확인
+        # 3. 중복 재확인 + 필터 + 저장
+        for fields in articles:
+            article_no = str(fields.get("article_no", ""))
+
             if is_duplicate(ws, article_no,
                             fields.get("complex_name", ""),
                             fields.get("floor", "")):
@@ -1013,7 +1237,6 @@ class App:
                 skip += 1
                 continue
 
-            # 필터 적용
             passes, reason = self._passes_filter(fields)
             if not passes:
                 log(f"  필터 제외: {reason}", "dim")
@@ -1023,29 +1246,11 @@ class App:
             next_row = ws.max_row + 1
             append_row(ws, fields, next_row)
             wb.save(excel)
-
-            name   = fields.get("complex_name", "")
-            trade  = fields.get("trade_type", "")
-            price  = fields.get("price_main", "")
-            rent   = fields.get("rent_price", "")
-            area   = fields.get("area_exclusive", "")
-            floor_ = fields.get("floor", "")
-
-            price_str = price
-            if rent:
-                price_str += f" / 월 {rent}"
-
-            log(
-                f"  ✓  {name}  |  {trade}  {price_str}만원"
-                f"  |  전용 {area}  {floor_}층"
-                f"  →  행 {next_row}",
-                "success",
-            )
             ok += 1
 
-        # 최종 요약
+        log(f"  저장 {ok}건 / 중복 {skip}건 / 필터 {filtered}건", "info")
         log(
-            f"\n── 완료:  저장 {ok}건  /  중복 {skip}건  /  필터 {filtered}건  /  실패 {fail}건  {'─' * 14}",
+            f"\n── 완료: 저장 {ok}건 / 중복 건너뜀 {skip}건  {'─' * 22}",
             "accent",
         )
         q.put(("done", None, None))
@@ -1062,15 +1267,21 @@ class App:
                     self.running = False
                     self.save_btn.config(
                         text="저장하기", state="normal",
-                        bg=ACCENT, fg="#12161F",
+                        bg=ACCENT, fg="#0E1218",
                     )
                 elif kind == "region_done":
                     self.running = False
                     self.region_btn.config(
                         text="검색 시작", state="normal",
-                        bg=ACCENT, fg="#12161F",
+                        bg=ACCENT, fg="#0E1218",
                     )
                     self.save_btn.config(state="normal")
+                elif kind == "pdf_done":
+                    self._log(f"PDF 저장 완료 → {a}", "success")
+                    self.pdf_btn.config(state="normal", text="PDF 저장하기")
+                elif kind == "pdf_error":
+                    self._log(f"PDF 변환 실패: {a}", "error")
+                    self.pdf_btn.config(state="normal", text="PDF 저장하기")
         except queue.Empty:
             pass
         self.root.after(80, self._poll)

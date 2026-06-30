@@ -1,0 +1,1714 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>네이버 부동산 매물 수집기</title>
+<style>
+/* ── Design tokens ─────────────────────────────────────────────────── */
+:root {
+  --bg:          #0E1218;
+  --surface:     #161D28;
+  --surface2:    #1A2333;
+  --input-bg:    #090C12;
+  --border:      #1F2A3A;
+  --border2:     #263547;
+  --text:        #E2EAF5;
+  --text-dim:    #4A5870;
+  --text-mid:    #8A9BB0;
+  --accent:      #F0A500;
+  --accent-dim:  #7A5300;
+  --success:     #34D079;
+  --error:       #F06060;
+  --info:        #5A9ED4;
+  --radius:      8px;
+  --radius-sm:   5px;
+  --font:        'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  --font-mono:   'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ────────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.header-logo {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+.header-logo span { color: var(--accent); }
+
+.header-spacer { flex: 1; }
+
+.main {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  overflow: hidden;
+}
+
+/* ── Left panel ────────────────────────────────────────────────────── */
+.panel-left {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 18px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+.panel-scroll::-webkit-scrollbar { width: 4px; }
+.panel-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── Right panel (log) ─────────────────────────────────────────────── */
+.panel-right {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.log-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-mid);
+}
+
+.log-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.log-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: background 0.3s;
+}
+.log-dot.active {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: pulse 1.2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+.log-body::-webkit-scrollbar { width: 4px; }
+.log-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-dim    { color: var(--text-dim); }
+.log-info   { color: var(--info); }
+.log-accent { color: var(--accent); }
+.log-success { color: var(--success); }
+.log-error  { color: var(--error); }
+
+.log-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.log-stat {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.log-stat b { color: var(--text); }
+
+/* ── Tabs ──────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+.tab:hover { color: var(--text-mid); }
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── Section titles ────────────────────────────────────────────────── */
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  margin-top: 14px;
+}
+.section-title:first-child { margin-top: 0; }
+
+/* ── Chip group ────────────────────────────────────────────────────── */
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.chip {
+  padding: 4px 11px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--text-mid);
+  transition: all 0.12s;
+  user-select: none;
+  white-space: nowrap;
+}
+.chip:hover {
+  border-color: var(--accent-dim);
+  color: var(--text);
+}
+.chip.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0E1218;
+  font-weight: 600;
+}
+
+/* ── Dong section ─────────────────────────────────────────────────── */
+.dong-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dong-toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  flex: 1;
+}
+
+.dong-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.dong-toggle-btn {
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: none;
+  transition: color 0.12s, border-color 0.12s;
+}
+.dong-toggle-btn:hover {
+  color: var(--text);
+  border-color: var(--border2);
+}
+
+.dong-section {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-top: 6px;
+  margin-bottom: 8px;
+  display: none;
+}
+.dong-section.open { display: block; }
+
+.dong-notice {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 8px 0;
+}
+
+/* ── Form elements ─────────────────────────────────────────────────── */
+.form-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+
+.form-label {
+  font-size: 12px;
+  color: var(--text-mid);
+  white-space: nowrap;
+  min-width: 64px;
+}
+
+input[type="text"],
+input[type="number"],
+textarea {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+input::placeholder, textarea::placeholder { color: var(--text-dim); }
+
+textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.range-sep {
+  color: var(--text-dim);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--text);
+  transition: all 0.12s;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:hover {
+  background: var(--border2);
+  border-color: var(--border2);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0E1218;
+  font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #FFB820;
+  border-color: #FFB820;
+}
+.btn.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+.btn.danger:hover {
+  background: rgba(240,96,96,0.1);
+}
+.btn.sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.btn-full { width: 100%; }
+
+.action-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ── Filter section ────────────────────────────────────────────────── */
+.filter-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.filter-toggle svg { transition: transform 0.2s; }
+.filter-toggle.open svg { transform: rotate(180deg); }
+
+.filter-body {
+  display: none;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.filter-body.open { display: block; }
+
+/* ── Summary card ─────────────────────────────────────────────────── */
+.summary-card {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  gap: 20px;
+  align-items: center;
+}
+.summary-card.show { display: flex; }
+
+.summary-stat {
+  text-align: center;
+}
+.summary-stat .num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+.summary-stat .lbl {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* ── Divider ───────────────────────────────────────────────────────── */
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 16px 0;
+}
+
+/* ── Data preview modal ────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s;
+}
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 1100px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(12px);
+  transition: transform 0.18s;
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.modal-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-left: 8px;
+}
+.modal-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--text); background: var(--border); }
+
+.modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface2);
+  color: var(--text-mid);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border2);
+  z-index: 1;
+}
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+tbody tr:hover { background: var(--surface2); }
+tbody td {
+  padding: 7px 12px;
+  color: var(--text);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+tbody td:first-child { color: var(--text-dim); font-size: 11px; }
+tbody td a { color: var(--info); text-decoration: none; }
+tbody td a:hover { text-decoration: underline; }
+
+.modal-loading, .modal-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 40px;
+}
+
+/* ── File indicator ────────────────────────────────────────────────── */
+.file-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border2);
+  font-size: 12px;
+  color: var(--text-mid);
+  max-width: 200px;
+  overflow: hidden;
+}
+.file-indicator svg { flex-shrink: 0; color: var(--accent); }
+#file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-rows {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.file-rows::before { content: '·'; margin-right: 4px; }
+
+/* ── Scrollbar (global) ────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── Toast ──────────────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+.toast {
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: all;
+  animation: slideIn 0.2s ease;
+  border: 1px solid var(--border2);
+}
+.toast.success { background: var(--surface); border-color: var(--success); color: var(--success); }
+.toast.error   { background: var(--surface); border-color: var(--error);   color: var(--error);   }
+.toast.info    { background: var(--surface); border-color: var(--info);     color: var(--info);    }
+
+@keyframes slideIn {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── Empty state ───────────────────────────────────────────────────── */
+.empty-log {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  gap: 8px;
+}
+.empty-log svg { opacity: 0.3; }
+.empty-log p { font-size: 13px; }
+
+/* ── Selection counter ─────────────────────────────────────────────── */
+.sel-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.sel-count b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="header-logo">부동산<span>·</span>매물수집기</div>
+    <div class="header-spacer"></div>
+
+    <!-- 파일 상태 표시 -->
+    <div class="file-indicator" id="file-indicator" title="현재 작업 파일">
+      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      <span id="file-name">새 파일</span>
+      <span class="file-rows" id="file-rows"></span>
+    </div>
+
+    <!-- 파일 삭제 버튼 (업로드된 파일 있을 때만 표시) -->
+    <button class="btn sm danger" id="btn-clear-file" onclick="clearFile()" style="display:none" title="파일 초기화 — 새 빈 파일로 시작">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+        <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
+      </svg>
+    </button>
+
+    <!-- 파일 업로드 (숨김 input) -->
+    <input type="file" id="upload-input" accept=".xlsx" style="display:none" onchange="handleUpload(this)">
+    <button class="btn sm" onclick="document.getElementById('upload-input').click()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+      </svg>
+      파일 불러오기
+    </button>
+
+    <button class="btn sm" id="btn-preview" onclick="openPreview()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      데이터 보기
+    </button>
+    <button class="btn sm" id="btn-excel" onclick="downloadExcel()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+      Excel 다운로드
+    </button>
+    <button class="btn sm" id="btn-pdf" onclick="exportPdf()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      PDF 내보내기
+    </button>
+  </header>
+
+  <!-- ── Main ── -->
+  <div class="main">
+
+    <!-- Left panel -->
+    <div class="panel-left">
+      <div class="panel-scroll">
+
+        <!-- Summary -->
+        <div class="summary-card" id="summary-card">
+          <div class="summary-stat">
+            <div class="num" id="stat-ok">0</div>
+            <div class="lbl">저장</div>
+          </div>
+          <div class="summary-stat">
+            <div class="num" id="stat-skip" style="color:var(--text-mid)">0</div>
+            <div class="lbl">중복</div>
+          </div>
+          <div class="summary-stat">
+            <div class="num" id="stat-filtered" style="color:var(--text-mid)">0</div>
+            <div class="lbl">필터</div>
+          </div>
+          <button class="btn sm danger" style="margin-left:auto" onclick="resetSummary()">초기화</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <div class="tab active" data-tab="region">지역 검색</div>
+          <div class="tab" data-tab="url">URL 직접 입력</div>
+        </div>
+
+        <!-- Tab: Region Search -->
+        <div class="tab-panel active" id="tab-region">
+          <div class="section-title">
+            구 선택
+            <span class="sel-count" id="gu-count"></span>
+          </div>
+          <div class="chip-group" id="gu-chips"></div>
+
+          <div class="dong-header" onclick="toggleDong()">
+            <div class="dong-toggle-label">동 선택</div>
+            <div class="dong-actions">
+              <button class="dong-toggle-btn" onclick="event.stopPropagation(); selectAllDong()">전체</button>
+              <button class="dong-toggle-btn" onclick="event.stopPropagation(); clearDong()">해제</button>
+              <button class="dong-toggle-btn" id="dong-caret">▴</button>
+            </div>
+          </div>
+
+          <div class="dong-section open" id="dong-section">
+            <div class="dong-notice" id="dong-notice">구를 먼저 선택하세요</div>
+            <div class="chip-group" id="dong-chips"></div>
+          </div>
+
+          <!-- Filter -->
+          <div class="filter-section">
+            <div class="filter-toggle open" id="filter-toggle" onclick="toggleFilter()">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/>
+                <line x1="11" y1="18" x2="13" y2="18"/>
+              </svg>
+              필터
+              <svg id="filter-caret" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+            <div class="filter-body open" id="filter-body">
+              <div class="form-row">
+                <div class="form-label">매매가</div>
+                <div class="range-row">
+                  <input type="number" id="f-price-min" placeholder="최소 (만원)" style="flex:1">
+                  <span class="range-sep">~</span>
+                  <input type="number" id="f-price-max" placeholder="최대 (만원)" style="flex:1">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-label">전용면적</div>
+                <div class="range-row">
+                  <input type="number" id="f-area-min" placeholder="최소 (평)" style="flex:1">
+                  <span class="range-sep">~</span>
+                  <input type="number" id="f-area-max" placeholder="최대 (평)" style="flex:1">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-label">방향</div>
+                <div class="chip-group" id="dir-chips"></div>
+              </div>
+              <div class="form-row" style="align-items:flex-start; margin-top:4px">
+                <div class="form-label">층</div>
+                <div class="chip-group" id="floor-chips"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-label">단지 세대수</div>
+                <div class="range-row">
+                  <input type="number" id="f-household-min" placeholder="최소 세대수" style="flex:1">
+                  <span class="range-sep" style="white-space:nowrap">세대 이상</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="btn primary btn-full" id="btn-start-region" onclick="startRegionScrape()">
+              수집 시작
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab: URL Input -->
+        <div class="tab-panel" id="tab-url">
+          <div class="section-title">매물 URL 입력</div>
+          <textarea id="url-input" placeholder="네이버 부동산 URL을 한 줄에 하나씩 입력하세요.
+
+https://new.land.naver.com/complexes/338?articleNo=...
+https://new.land.naver.com/articles/..."></textarea>
+
+          <!-- Filter -->
+          <div class="filter-section" style="margin-top:12px">
+            <div class="filter-toggle open" id="filter-toggle2" onclick="toggleFilter2()">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/>
+                <line x1="11" y1="18" x2="13" y2="18"/>
+              </svg>
+              필터
+              <svg id="filter-caret2" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+            <div class="filter-body open" id="filter-body2">
+              <div class="form-row">
+                <div class="form-label">매매가</div>
+                <div class="range-row">
+                  <input type="number" id="f2-price-min" placeholder="최소 (만원)" style="flex:1">
+                  <span class="range-sep">~</span>
+                  <input type="number" id="f2-price-max" placeholder="최대 (만원)" style="flex:1">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-label">전용면적</div>
+                <div class="range-row">
+                  <input type="number" id="f2-area-min" placeholder="최소 (평)" style="flex:1">
+                  <span class="range-sep">~</span>
+                  <input type="number" id="f2-area-max" placeholder="최대 (평)" style="flex:1">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-label">방향</div>
+                <div class="chip-group" id="dir-chips2"></div>
+              </div>
+              <div class="form-row" style="align-items:flex-start; margin-top:4px">
+                <div class="form-label">층</div>
+                <div class="chip-group" id="floor-chips2"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-label">단지 세대수</div>
+                <div class="range-row">
+                  <input type="number" id="f2-household-min" placeholder="최소 세대수" style="flex:1">
+                  <span class="range-sep" style="white-space:nowrap">세대 이상</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="btn primary btn-full" id="btn-start-url" onclick="startUrlScrape()">
+              수집 시작
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right panel (log) -->
+    <div class="panel-right">
+      <div class="log-header">
+        <div class="log-title">실시간 로그</div>
+        <div class="log-status">
+          <div class="log-dot" id="log-dot"></div>
+          <span id="log-status-text">대기 중</span>
+        </div>
+        <button class="btn sm" style="margin-left:12px" onclick="clearLog()">지우기</button>
+      </div>
+
+      <div class="log-body" id="log-body">
+        <div class="empty-log" id="log-empty">
+          <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/>
+            <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/>
+          </svg>
+          <p>수집을 시작하면 로그가 표시됩니다</p>
+        </div>
+      </div>
+
+      <div class="log-footer">
+        <div class="log-stat" id="log-stat">
+          로그 <b id="log-line-count">0</b>줄
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Data preview modal ── -->
+<div class="modal-overlay" id="modal-overlay" onclick="closePreview()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">수집 데이터 <span class="modal-count" id="modal-count"></span></div>
+      <button class="modal-close" onclick="closePreview()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <div class="modal-loading" id="modal-loading">불러오는 중...</div>
+      <div class="table-wrap" id="table-wrap" style="display:none">
+        <table id="preview-table">
+          <thead id="preview-thead"></thead>
+          <tbody id="preview-tbody"></tbody>
+        </table>
+      </div>
+      <div class="modal-empty" id="modal-empty" style="display:none">수집된 데이터가 없습니다</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ── Data ──────────────────────────────────────────────────────────────────────
+const SEOUL_REGIONS = [
+  "강남구","강동구","강북구","강서구","관악구","광진구","구로구",
+  "금천구","노원구","도봉구","동대문구","동작구","마포구","서대문구",
+  "서초구","성동구","성북구","송파구","양천구","영등포구","용산구",
+  "은평구","종로구","중구","중랑구",
+];
+
+const SEOUL_DONG = {
+  "강남구": ["개포동","논현동","대치동","도곡동","삼성동","세곡동","수서동","신사동","압구정동","역삼동","일원동","자곡동","청담동"],
+  "강동구": ["강일동","고덕동","길동","둔촌동","명일동","상일동","성내동","암사동","천호동"],
+  "강북구": ["번동","미아동","수유동","우이동"],
+  "강서구": ["가양동","개화동","공항동","내발산동","등촌동","마곡동","방화동","외발산동","화곡동"],
+  "관악구": ["남현동","봉천동","신림동"],
+  "광진구": ["광장동","구의동","군자동","능동","자양동","중곡동","화양동"],
+  "구로구": ["가리봉동","개봉동","고척동","구로동","궁동","오류동","온수동","천왕동","항동"],
+  "금천구": ["가산동","독산동","시흥동"],
+  "노원구": ["공릉동","상계동","월계동","중계동","하계동"],
+  "도봉구": ["도봉동","방학동","쌍문동","창동"],
+  "동대문구": ["답십리동","용두동","이문동","장안동","전농동","청량리동","회기동","휘경동"],
+  "동작구": ["노량진동","대방동","동작동","본동","사당동","상도동","신대방동"],
+  "마포구": ["공덕동","도화동","동교동","마포동","망원동","상수동","서교동","성산동","신수동","아현동","연남동","염리동","용강동","합정동"],
+  "서대문구": ["남가좌동","냉천동","대신동","대현동","북가좌동","신촌동","연희동","천연동","홍은동","홍제동"],
+  "서초구": ["내곡동","반포동","방배동","서초동","신원동","양재동","염곡동","우면동","원지동","잠원동"],
+  "성동구": ["금호동","마장동","사근동","성수동","송정동","옥수동","용답동","왕십리동","행당동"],
+  "성북구": ["길음동","돈암동","동선동","보문동","삼선동","석관동","성북동","안암동","월곡동","장위동","정릉동","종암동"],
+  "송파구": ["가락동","거여동","문정동","방이동","삼전동","석촌동","송파동","신천동","오금동","잠실동","장지동","풍납동"],
+  "양천구": ["목동","신월동","신정동"],
+  "영등포구": ["당산동","대림동","도림동","문래동","신길동","양평동","여의도동","영등포동"],
+  "용산구": ["갈월동","남영동","동빙고동","문배동","보광동","서빙고동","용문동","이촌동","이태원동","청파동","한강로동","한남동"],
+  "은평구": ["갈현동","구산동","녹번동","대조동","불광동","수색동","신사동","역촌동","응암동","증산동","진관동"],
+  "종로구": ["가회동","계동","교남동","돈의동","동숭동","명륜동","무악동","부암동","사직동","삼청동","숭인동","신교동","안국동","연건동","옥인동","와룡동","원서동","이화동","인사동","창성동","청운동","체부동","통의동","통인동","팔판동","평동","필운동","행촌동","혜화동","홍지동","효자동"],
+  "중구": ["광희동","남산동","다산동","만리동","묵정동","방산동","봉래동","소공동","신당동","을지로동","입정동","장충동","정동","충무로동","태평로","필동","황학동","회현동"],
+  "중랑구": ["면목동","망우동","묵동","상봉동","신내동","중화동"],
+};
+
+const DIRECTIONS = ["동","서","남","북","남동","남서","북동","북서"];
+const FLOORS = ["저층","중층","고층","반지하","옥탑"];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentSessionId = null;
+let currentFileName = '새 파일';
+let _sessionReady = null;  // Promise that resolves when session_id is set
+let selectedGu = new Set();
+let selectedDong = new Set();
+let selectedDirs = new Set();
+let selectedFloors = new Set();
+let selectedDirs2 = new Set();
+let selectedFloors2 = new Set();
+let dongOpen = true;
+let filterOpen = true;
+let filter2Open = true;
+let logLineCount = 0;
+let isRunning = false;
+let ws = null;
+let totalOk = 0, totalSkip = 0, totalFiltered = 0;
+
+// ── Session ───────────────────────────────────────────────────────────────────
+async function _tryCreateSession(retries = 5, delayMs = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch('/api/session/new', { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `서버 오류 (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      if (data.session_id) return data.session_id;
+      throw new Error('세션 ID가 없습니다');
+    } catch (e) {
+      console.warn(`세션 생성 시도 ${i + 1}/${retries}:`, e.message);
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, delayMs));
+      } else {
+        return { error: e.message };
+      }
+    }
+  }
+  return null;
+}
+
+function initSession() {
+  document.getElementById('file-name').textContent = '연결 중…';
+  document.getElementById('file-rows').textContent = '';
+
+  _sessionReady = (async () => {
+    const result = await _tryCreateSession();
+
+    if (result && typeof result === 'string') {
+      // 성공
+      currentSessionId = result;
+      updateFileIndicator('새 파일', 0);
+    } else {
+      // 실패 — 오류 원인 표시
+      const reason = result?.error || '알 수 없는 오류';
+      document.getElementById('file-name').textContent = '서버 연결 실패';
+      document.getElementById('file-rows').textContent = '새로고침하세요';
+      toast(`서버 오류: ${reason}`, 'error');
+      console.error('세션 초기화 실패:', reason);
+    }
+    return currentSessionId;
+  })();
+}
+
+async function getSessionId() {
+  return await (_sessionReady || Promise.resolve(null));
+}
+
+function updateFileIndicator(name, rows) {
+  currentFileName = name;
+  document.getElementById('file-name').textContent = name;
+  const rowEl = document.getElementById('file-rows');
+  if (rows !== null && rows !== undefined) {
+    rowEl.textContent = rows > 0 ? `${rows}건` : '비어있음';
+  }
+  // 삭제 버튼: 업로드된 파일이 있을 때만 표시
+  const isUploaded = name !== '새 파일';
+  document.getElementById('btn-clear-file').style.display = isUploaded ? '' : 'none';
+}
+
+async function clearFile() {
+  if (!confirm('파일을 초기화하면 현재 수집된 데이터가 모두 삭제됩니다.\n계속하시겠습니까?')) return;
+  const sid = await getSessionId();
+  if (!sid) return;
+  try {
+    await fetch(`/api/session/reset?session_id=${sid}`, { method: 'POST' });
+    updateFileIndicator('새 파일', 0);
+    resetSummary();
+    toast('초기화 완료 — 새 빈 파일로 시작합니다', 'info');
+  } catch (e) {
+    toast('초기화 실패: ' + e.message, 'error');
+  }
+}
+
+async function refreshFileInfo() {
+  if (!currentSessionId) return;
+  try {
+    const res = await fetch(`/api/excel/info?session_id=${currentSessionId}`);
+    const data = await res.json();
+    document.getElementById('file-rows').textContent = data.rows > 0 ? `${data.rows}건` : '비어있음';
+  } catch (_) {}
+}
+
+async function handleUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const sid = await getSessionId();
+  if (!sid) { toast('세션 오류가 발생했습니다. 새로고침 후 다시 시도하세요.', 'error'); return; }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch(`/api/excel/upload?session_id=${sid}`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (data.error) {
+      toast(data.error, 'error');
+    } else {
+      updateFileIndicator(file.name, data.rows);
+      toast(`불러오기 완료 — ${data.rows}건 기존 데이터`, 'success');
+      resetSummary();
+    }
+  } catch (e) {
+    toast('업로드 실패: ' + e.message, 'error');
+  }
+  input.value = '';
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+function init() {
+  initSession();
+
+  // Tabs
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  // Gu chips
+  const guContainer = document.getElementById('gu-chips');
+  SEOUL_REGIONS.forEach(gu => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = gu;
+    chip.onclick = () => toggleGu(gu, chip);
+    guContainer.appendChild(chip);
+  });
+
+  // Direction chips
+  const dirContainer = document.getElementById('dir-chips');
+  DIRECTIONS.forEach(d => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = d;
+    chip.onclick = () => {
+      chip.classList.toggle('selected');
+      if (chip.classList.contains('selected')) selectedDirs.add(d);
+      else selectedDirs.delete(d);
+    };
+    dirContainer.appendChild(chip);
+  });
+
+  // Floor chips (region tab)
+  const floorContainer = document.getElementById('floor-chips');
+  FLOORS.forEach(f => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = f;
+    chip.onclick = () => {
+      chip.classList.toggle('selected');
+      if (chip.classList.contains('selected')) selectedFloors.add(f);
+      else selectedFloors.delete(f);
+    };
+    floorContainer.appendChild(chip);
+  });
+
+  // Direction chips (URL tab)
+  const dirContainer2 = document.getElementById('dir-chips2');
+  DIRECTIONS.forEach(d => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = d;
+    chip.onclick = () => {
+      chip.classList.toggle('selected');
+      if (chip.classList.contains('selected')) selectedDirs2.add(d);
+      else selectedDirs2.delete(d);
+    };
+    dirContainer2.appendChild(chip);
+  });
+
+  // Floor chips (URL tab)
+  const floorContainer2 = document.getElementById('floor-chips2');
+  FLOORS.forEach(f => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = f;
+    chip.onclick = () => {
+      chip.classList.toggle('selected');
+      if (chip.classList.contains('selected')) selectedFloors2.add(f);
+      else selectedFloors2.delete(f);
+    };
+    floorContainer2.appendChild(chip);
+  });
+}
+
+// ── Gu / Dong selection ───────────────────────────────────────────────────────
+function toggleGu(gu, chip) {
+  if (selectedGu.has(gu)) {
+    selectedGu.delete(gu);
+    chip.classList.remove('selected');
+    const dongs = SEOUL_DONG[gu] || [];
+    dongs.forEach(d => selectedDong.delete(d));
+  } else {
+    selectedGu.add(gu);
+    chip.classList.add('selected');
+    // 구 선택 시 동 섹션 자동 열기
+    if (!dongOpen) {
+      dongOpen = true;
+      document.getElementById('dong-section').classList.add('open');
+      document.getElementById('dong-caret').textContent = '▴';
+    }
+  }
+  updateGuCount();
+  renderDongChips();
+}
+
+function updateGuCount() {
+  const el = document.getElementById('gu-count');
+  if (selectedGu.size > 0) {
+    el.innerHTML = `<b>${selectedGu.size}</b>개 선택`;
+  } else {
+    el.textContent = '';
+  }
+}
+
+function renderDongChips() {
+  const container = document.getElementById('dong-chips');
+  const notice = document.getElementById('dong-notice');
+  container.innerHTML = '';
+
+  const gus = [...selectedGu];
+  if (gus.length === 0) {
+    notice.style.display = 'block';
+    return;
+  }
+  notice.style.display = 'none';
+
+  // Collect all dongs from selected gus
+  const allDongs = [];
+  gus.forEach(gu => {
+    const dongs = SEOUL_DONG[gu] || [];
+    dongs.forEach(d => {
+      if (!allDongs.includes(d)) allDongs.push(d);
+    });
+  });
+
+  allDongs.forEach(dong => {
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (selectedDong.has(dong) ? ' selected' : '');
+    chip.textContent = dong;
+    chip.onclick = () => {
+      if (selectedDong.has(dong)) {
+        selectedDong.delete(dong);
+        chip.classList.remove('selected');
+      } else {
+        selectedDong.add(dong);
+        chip.classList.add('selected');
+      }
+    };
+    container.appendChild(chip);
+  });
+}
+
+function toggleDong() {
+  dongOpen = !dongOpen;
+  const sec = document.getElementById('dong-section');
+  const caret = document.getElementById('dong-caret');
+  sec.classList.toggle('open', dongOpen);
+  caret.textContent = dongOpen ? '▴' : '▾';
+}
+
+function selectAllDong() {
+  const gus = [...selectedGu];
+  if (gus.length === 0) {
+    toast('먼저 구를 선택하세요', 'info');
+    return;
+  }
+  gus.forEach(gu => {
+    (SEOUL_DONG[gu] || []).forEach(d => selectedDong.add(d));
+  });
+  renderDongChips();
+  if (!dongOpen) toggleDong();
+}
+
+function clearDong() {
+  selectedDong.clear();
+  renderDongChips();
+}
+
+// ── Filter toggles ────────────────────────────────────────────────────────────
+function toggleFilter() {
+  filterOpen = !filterOpen;
+  document.getElementById('filter-toggle').classList.toggle('open', filterOpen);
+  document.getElementById('filter-body').classList.toggle('open', filterOpen);
+}
+
+function toggleFilter2() {
+  filter2Open = !filter2Open;
+  document.getElementById('filter-toggle2').classList.toggle('open', filter2Open);
+  document.getElementById('filter-body2').classList.toggle('open', filter2Open);
+}
+
+// ── Get filters ───────────────────────────────────────────────────────────────
+function getFilters(prefix = 'f') {
+  const isUrl = prefix === 'f2';
+  return {
+    price_min:     document.getElementById(prefix + '-price-min')?.value || '',
+    price_max:     document.getElementById(prefix + '-price-max')?.value || '',
+    area_min:      document.getElementById(prefix + '-area-min')?.value || '',
+    area_max:      document.getElementById(prefix + '-area-max')?.value || '',
+    directions:    isUrl ? [...selectedDirs2] : [...selectedDirs],
+    floors:        isUrl ? [...selectedFloors2] : [...selectedFloors],
+    household_min: document.getElementById(prefix + '-household-min')?.value || '',
+  };
+}
+
+// ── Build regions list ────────────────────────────────────────────────────────
+function buildRegionList() {
+  if (selectedGu.size === 0) return [];
+
+  // If specific dongs chosen, use "구 동" format; else just "구"
+  const results = [];
+  [...selectedGu].forEach(gu => {
+    const guDongs = (SEOUL_DONG[gu] || []).filter(d => selectedDong.has(d));
+    if (guDongs.length > 0) {
+      guDongs.forEach(d => results.push(gu + ' ' + d));
+    } else {
+      results.push(gu);
+    }
+  });
+  return results;
+}
+
+// ── WebSocket & scraping ──────────────────────────────────────────────────────
+async function startRegionScrape() {
+  if (isRunning) { stopScrape(); return; }
+
+  const regions = buildRegionList();
+  if (regions.length === 0) { toast('구를 먼저 선택하세요', 'error'); return; }
+
+  const sid = await getSessionId();
+  if (!sid) { toast('세션 오류. 새로고침 후 다시 시도하세요.', 'error'); return; }
+
+  startJob('/api/scrape/region', {
+    session_id: sid,
+    regions,
+    max_count: 500,
+    filters: getFilters('f'),
+  }, document.getElementById('btn-start-region'));
+}
+
+async function startUrlScrape() {
+  if (isRunning) { stopScrape(); return; }
+
+  const raw = document.getElementById('url-input').value.trim();
+  if (!raw) { toast('URL을 입력하세요', 'error'); return; }
+
+  const urls = raw.split('\n').map(u => u.trim()).filter(Boolean);
+  if (urls.length === 0) { toast('유효한 URL이 없습니다', 'error'); return; }
+
+  const sid = await getSessionId();
+  if (!sid) { toast('세션 오류. 새로고침 후 다시 시도하세요.', 'error'); return; }
+
+  startJob('/api/scrape/urls', {
+    session_id: sid,
+    urls,
+    filters: getFilters('f2'),
+  }, document.getElementById('btn-start-url'));
+}
+
+async function startJob(endpoint, body, btn) {
+  clearLog();
+  setRunning(true, btn);
+
+  let res;
+  try {
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    res = await r.json();
+  } catch (e) {
+    toast('서버 연결 실패: ' + e.message, 'error');
+    setRunning(false, btn);
+    return;
+  }
+
+  if (!res.job_id) {
+    toast('작업 시작 실패', 'error');
+    setRunning(false, btn);
+    return;
+  }
+
+  connectWs(res.job_id, btn);
+}
+
+function connectWs(jobId, btn) {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/${jobId}`);
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'ping') return;
+    if (msg.type === 'log') {
+      appendLog(msg.msg, msg.tag);
+    } else if (msg.type === 'done') {
+      appendLog(
+        `\n✓ 완료  저장 ${msg.ok}건 / 중복 ${msg.skip}건 / 필터 ${msg.filtered || 0}건`,
+        'success'
+      );
+      totalOk += msg.ok || 0;
+      totalSkip += msg.skip || 0;
+      totalFiltered += msg.filtered || 0;
+      updateSummary();
+      setRunning(false, btn);
+      toast(`완료 — 저장 ${msg.ok}건`, 'success');
+      // 파일 행 수 업데이트
+      if (msg.rows !== undefined) {
+        document.getElementById('file-rows').textContent = msg.rows > 0 ? `${msg.rows}건` : '비어있음';
+      }
+    }
+  };
+
+  ws.onerror = () => {
+    appendLog('WebSocket 오류', 'error');
+    setRunning(false, btn);
+  };
+
+  ws.onclose = () => {
+    if (isRunning) {
+      setRunning(false, btn);
+    }
+  };
+}
+
+function stopScrape() {
+  if (ws) ws.close();
+  setRunning(false, null);
+}
+
+function setRunning(running, btn) {
+  isRunning = running;
+  const dot = document.getElementById('log-dot');
+  const statusText = document.getElementById('log-status-text');
+
+  if (running) {
+    dot.classList.add('active');
+    statusText.textContent = '수집 중';
+    if (btn) { btn.textContent = '중단'; btn.classList.remove('primary'); btn.classList.add('danger'); }
+  } else {
+    dot.classList.remove('active');
+    statusText.textContent = '완료';
+    if (btn) {
+      btn.textContent = '수집 시작';
+      btn.classList.add('primary');
+      btn.classList.remove('danger');
+    }
+    // Reset any running btn
+    document.querySelectorAll('.btn.danger').forEach(b => {
+      if (b.id && b.id.startsWith('btn-start')) {
+        b.textContent = '수집 시작';
+        b.classList.add('primary');
+        b.classList.remove('danger');
+      }
+    });
+  }
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+function appendLog(msg, tag) {
+  const body = document.getElementById('log-body');
+  const empty = document.getElementById('log-empty');
+  if (empty) empty.style.display = 'none';
+
+  const line = document.createElement('div');
+  line.className = 'log-line log-' + (tag || 'dim');
+  line.textContent = msg;
+  body.appendChild(line);
+  logLineCount++;
+  document.getElementById('log-line-count').textContent = logLineCount;
+
+  // Auto scroll
+  body.scrollTop = body.scrollHeight;
+}
+
+function clearLog() {
+  const body = document.getElementById('log-body');
+  body.innerHTML = `<div class="empty-log" id="log-empty">
+    <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/>
+      <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/>
+    </svg>
+    <p>수집을 시작하면 로그가 표시됩니다</p>
+  </div>`;
+  logLineCount = 0;
+  document.getElementById('log-line-count').textContent = '0';
+  document.getElementById('log-status-text').textContent = '대기 중';
+}
+
+// ── Summary ───────────────────────────────────────────────────────────────────
+function updateSummary() {
+  document.getElementById('summary-card').classList.add('show');
+  document.getElementById('stat-ok').textContent = totalOk;
+  document.getElementById('stat-skip').textContent = totalSkip;
+  document.getElementById('stat-filtered').textContent = totalFiltered;
+}
+
+function resetSummary() {
+  totalOk = totalSkip = totalFiltered = 0;
+  document.getElementById('summary-card').classList.remove('show');
+}
+
+// ── Excel & PDF ───────────────────────────────────────────────────────────────
+async function downloadExcel() {
+  const btn = document.getElementById('btn-excel');
+  btn.disabled = true;
+  btn.textContent = '다운로드 중...';
+
+  try {
+    const sid = await getSessionId();
+    if (!sid) { toast('세션 오류. 새로고침 후 다시 시도하세요.', 'error'); return; }
+
+    // 행 수 확인
+    const infoRes = await fetch(`/api/excel/info?session_id=${sid}`);
+    const info = await infoRes.json();
+    if (info.rows === 0) {
+      toast('저장된 매물이 없습니다. 먼저 수집을 실행하세요.', 'error');
+      return;
+    }
+
+    const fileRes = await fetch(`/api/excel/download?session_id=${sid}`);
+    if (!fileRes.ok) { toast('다운로드 실패', 'error'); return; }
+    const blob = await fileRes.blob();
+
+    // File System Access API (Chrome/Edge) — 파일명·위치 선택 가능
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: '네이버_부동산_매물.xlsx',
+          types: [{
+            description: 'Excel 파일',
+            accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        toast('저장 완료', 'success');
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') return; // 사용자가 취소
+        // 다른 오류면 폴백으로 진행
+      }
+    }
+
+    // 폴백: 기본 다운로드 (Safari / Firefox)
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '네이버_부동산_매물.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('다운로드 시작 (브라우저 설정 폴더에 저장됩니다)', 'info');
+  } catch (e) {
+    toast('다운로드 실패: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+    </svg> Excel 다운로드`;
+  }
+}
+
+async function exportPdf() {
+  const btn = document.getElementById('btn-pdf');
+  btn.disabled = true;
+  btn.textContent = 'PDF 생성 중...';
+  try {
+    const sid = await getSessionId();
+    if (!sid) { toast('세션 오류. 새로고침 후 다시 시도하세요.', 'error'); return; }
+    const res = await fetch(`/api/pdf/export?session_id=${sid}`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json();
+      toast('PDF 오류: ' + (err.error || '알 수 없는 오류'), 'error');
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '네이버_부동산_매물.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('PDF 다운로드 완료', 'success');
+  } catch (e) {
+    toast('PDF 오류: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg> PDF 내보내기`;
+  }
+}
+
+// ── Data preview ──────────────────────────────────────────────────────────────
+const URL_COL_HEADER = 'URL';
+
+async function openPreview() {
+  const overlay = document.getElementById('modal-overlay');
+  overlay.classList.add('open');
+
+  // 로딩 상태 초기화
+  document.getElementById('modal-loading').style.display = 'flex';
+  document.getElementById('table-wrap').style.display = 'none';
+  document.getElementById('modal-empty').style.display = 'none';
+  document.getElementById('modal-count').textContent = '';
+
+  const sid = await getSessionId();
+  if (!sid) { closePreview(); toast('세션 오류', 'error'); return; }
+
+  try {
+    const res = await fetch(`/api/excel/preview?session_id=${sid}`);
+    const data = await res.json();
+
+    document.getElementById('modal-loading').style.display = 'none';
+
+    if (!data.rows || data.rows.length === 0) {
+      document.getElementById('modal-empty').style.display = 'flex';
+      return;
+    }
+
+    document.getElementById('modal-count').textContent = `${data.total}건`;
+
+    // 헤더
+    const thead = document.getElementById('preview-thead');
+    thead.innerHTML = '<tr>' + data.headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+
+    // 바디
+    const urlIdx = data.headers.indexOf(URL_COL_HEADER);
+    const tbody = document.getElementById('preview-tbody');
+    tbody.innerHTML = data.rows.map(row =>
+      '<tr>' + row.map((cell, i) => {
+        if (i === urlIdx && cell) {
+          return `<td><a href="${cell}" target="_blank" rel="noopener">링크</a></td>`;
+        }
+        return `<td title="${cell}">${cell}</td>`;
+      }).join('') + '</tr>'
+    ).join('');
+
+    document.getElementById('table-wrap').style.display = 'block';
+  } catch (e) {
+    closePreview();
+    toast('데이터 로드 실패: ' + e.message, 'error');
+  }
+}
+
+function closePreview() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+// ESC 키로 닫기
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePreview(); });
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+function toast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

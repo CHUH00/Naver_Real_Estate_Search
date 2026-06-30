@@ -36,14 +36,13 @@ HEADERS_MAP = [
     ("단지명",                  "complex_name"),
     ("주소",                    "address"),
     ("거래유형",                "trade_type"),
-    ("보증금/매매가 (만원)",    "price_main"),
-    ("기보증금/월세",           "rent_price"),
+    ("매매가 (만원)",           "price_main"),
+    ("기보증금",                 "rent_price"),
     ("입주가능일",              "move_in_date"),
-    ("공급면적 (㎡)",           "area_supply"),
-    ("전용면적 (㎡)",           "area_exclusive"),
-    ("평수 (평)",               "area_pyeong"),
+    ("공급면적 (평)",           "area_supply"),
+    ("전용면적 (평)",           "area_exclusive"),
     ("방향",                    "direction"),
-    ("해당면적 세대수 (세대)",  "household_by_type"),
+    ("단지세대수/동세대수",      "household_by_type"),
     ("총주차대수 (대)",         "parking_count"),
     ("방수/화장실수 (개)",      "rooms_baths"),
     ("해당층/총층",             "floor"),
@@ -64,7 +63,7 @@ def parse_url(url: str) -> tuple[str, str]:
     parsed = urlparse(url)
     qs = parse_qs(parsed.query)
 
-    article_no = qs.get("articleNo", [""])[0]
+    article_no = re.sub(r"\D+$", "", qs.get("articleNo", [""])[0])  # 숫자 이외 trailing 문자 제거
     complex_no = ""
 
     m = re.search(r"/complexes/(\d+)", parsed.path)
@@ -127,7 +126,8 @@ def fetch_via_api(article_no: str, complex_no: str, retries: int = 3, log=print)
 # ─── API 호출 (브라우저 경유) ──────────────────────────────────────────────────
 
 def fetch_via_browser(article_no: str, complex_no: str, original_url: str, log=print) -> dict:
-    """Playwright로 실제 브라우저를 열어 API 응답 가로채기."""
+    """Playwright로 실제 브라우저를 열어 API 응답 가로채기.
+    같은 세션에서 기보증금 전세 실거래가도 함께 조회해 _fetched_rent_price 키로 반환."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -138,16 +138,24 @@ def fetch_via_browser(article_no: str, complex_no: str, original_url: str, log=p
         )
 
     captured = {}
+    jwt_token = [None]
 
     def on_response(response):
         if (
-            f"api/articles/{article_no}" in response.url
+            "data" not in captured          # 첫 번째 성공 응답만 저장, 이후 덮어쓰기 방지
+            and f"api/articles/{article_no}" in response.url
             and response.status == 200
         ):
             try:
                 captured["data"] = response.json()
             except Exception:
                 pass
+
+    def on_request(request):
+        if jwt_token[0] is None:
+            auth = request.headers.get("authorization", "")
+            if auth.startswith("Bearer "):
+                jwt_token[0] = auth[7:]
 
     navigate_url = (
         original_url
@@ -167,9 +175,74 @@ def fetch_via_browser(article_no: str, complex_no: str, original_url: str, log=p
             locale="ko-KR",
         )
         page = ctx.new_page()
+        page.on("request", on_request)
         page.on("response", on_response)
         page.goto(navigate_url, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(3000)
+
+        # 기보증금 없으면 전세 실거래가 인라인 조회 (세션 유지 중에)
+        if "data" in captured and jwt_token[0] and complex_no:
+            data = captured["data"]
+            price_info = data.get("articlePrice", {})
+            all_warrant = price_info.get("allWarrantPrice", 0) or 0
+            if not all_warrant:
+                try:
+                    ea = float(
+                        data.get("articleSpace", {}).get("exclusiveSpace")
+                        or data.get("articleAddition", {}).get("area2")
+                        or 0
+                    )
+                except (TypeError, ValueError):
+                    ea = 0.0
+
+                py_list = page.evaluate(
+                    """async ([cno, jwt]) => {
+                        const r = await fetch(
+                            `https://new.land.naver.com/api/complexes/${cno}?sameAddressGroup=false`,
+                            {headers: {'Authorization': 'Bearer ' + jwt,
+                                       'Accept': 'application/json',
+                                       'Referer': 'https://new.land.naver.com/'}}
+                        );
+                        if (!r.ok) return [];
+                        const d = await r.json();
+                        return (d.complexPyeongDetailList || []).map(p => ({
+                            pyeongNo: String(p.pyeongNo),
+                            exclusiveArea: parseFloat(p.exclusiveArea) || 0
+                        }));
+                    }""",
+                    [complex_no, jwt_token[0]],
+                ) or []
+
+                if py_list:
+                    best = (min(py_list, key=lambda p: abs(p["exclusiveArea"] - ea))
+                            if ea else py_list[0])
+                    rp = page.evaluate(
+                        """async ([cno, pno, jwt]) => {
+                            const r = await fetch(
+                                `https://new.land.naver.com/api/complexes/${cno}/prices/real?tradeType=B1&areaNo=${pno}&type=table`,
+                                {headers: {'Authorization': 'Bearer ' + jwt,
+                                           'Accept': 'application/json',
+                                           'Referer': `https://new.land.naver.com/complexes/${cno}`}}
+                            );
+                            if (!r.ok) return null;
+                            const d = await r.json();
+                            const months = d.realPriceOnMonthList || [];
+                            if (!months.length) return null;
+                            const latest = [...(months[0].realPriceList || [])];
+                            if (!latest.length) return null;
+                            latest.sort((a, b) => Number(b.tradeDate) - Number(a.tradeDate));
+                            return latest[0];
+                        }""",
+                        [complex_no, best["pyeongNo"], jwt_token[0]],
+                    )
+                    if rp:
+                        ps = (rp.get("formattedPrice") or "").strip()
+                        dt = (rp.get("formattedTradeYearMonth") or "")[:7]
+                        if ps:
+                            dt = dt or datetime.now().strftime("%Y.%m")
+                            captured["data"]["_fetched_rent_price"] = f"{ps} ({dt}. 거래내역)"
+
+
         browser.close()
 
     if "data" not in captured:
@@ -187,6 +260,8 @@ def fetch_article(
 ) -> dict:
     """API 호출 - 직접 시도 후 실패하면 브라우저 폴백."""
     return fetch_via_browser(article_no, complex_no, original_url, log=log)
+
+
 
 
 # ─── 필드 추출 ─────────────────────────────────────────────────────────────────
@@ -244,15 +319,13 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
     # 거래유형
     trade_type = _get(addition, "tradeTypeName") or _get(detail, "tradeTypeName")
 
-    # 면적
+    # 면적 (㎡ → 평 변환, 소수점 1자리)
+    def _to_pyeong(val):
+        try: return round(float(val) * 0.3025, 1)
+        except (TypeError, ValueError): return ""
+
     area_supply    = _get(space, "supplySpace")    or _get(addition, "area1")
     area_exclusive = _get(space, "exclusiveSpace") or _get(addition, "area2")
-
-    # 평수 계산 (전용면적 × 0.3025, 소수점 1자리)
-    try:
-        area_pyeong = round(float(area_exclusive) * 0.3025, 1)
-    except (TypeError, ValueError):
-        area_pyeong = ""
 
     # 층: "해당층/총층"
     floor = _get(addition, "floorInfo") or (
@@ -263,18 +336,21 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
     # 가격
     price_main = _get(addition, "dealOrWarrantPrc")
 
-    # 기보증금/월세: 월세면 "보증금/월세", 매매/전세면 allWarrantPrice(기보증금)
-    rent_prc = _get(addition, "rentPrc")
-    all_warrant = price.get("allWarrantPrice", 0)
+    # 기보증금/월세
+    today_ym   = datetime.now().strftime("%Y.%m")
+    rent_prc   = _get(addition, "rentPrc")
+    all_warrant  = price.get("allWarrantPrice", 0)
     monthly_rent = price.get("rentPrice", 0)
-    if rent_prc:                          # 월세 매물: API가 이미 문자열로 제공
-        rent_price = rent_prc
+    if rent_prc:
+        rent_price = rent_prc                                              # 월세: API 문자열 그대로
     elif monthly_rent and monthly_rent > 0:
         rent_price = f"{_fmt_price(all_warrant)}/{_fmt_price(monthly_rent)}"
     elif all_warrant and all_warrant > 0:
-        rent_price = f"{_fmt_price(all_warrant)}/-"  # 기보증금만 있는 경우
+        rent_price = f"{_fmt_price(all_warrant)} ({today_ym}. 실보증금)"   # 기보증금 있음
+    elif data.get("_fetched_rent_price"):
+        rent_price = data["_fetched_rent_price"]                           # 브라우저 세션에서 미리 조회
     else:
-        rent_price = ""
+        rent_price = ""                                                    # 없음 → 후처리에서 채움
 
     # 관리비 (원 단위 → 만원)
     admin_amount = _get(admin, "etcFeeDetails", "etcFeeAmount")
@@ -308,11 +384,13 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
                 import sys
                 print(f"[방향 디버그] {_sec_nm}: {_dir_keys} → {[_sec[k] for k in _dir_keys]}", file=sys.stderr)
 
-    # 해당면적 세대수
+    # 단지세대수 / 동세대수
+    household_total   = _get(detail, "aptHouseholdCount")
     household_by_type = _get(detail, "householdCountByPtp")
 
     # 총주차대수
     parking_count = _get(detail, "aptParkingCount") or _get(detail, "parkingCount")
+    parking_ratio = _get(detail, "aptParkingCountPerHousehold") or _get(detail, "parkingPerHouseholdCount")
 
     # 방수/화장실수
     rooms   = _get(detail, "roomCount")
@@ -339,6 +417,16 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
         or _get(addition, "articleFeatureDesc")
     )
 
+    # move_in이 "즉시입주"인데 feature에 날짜가 적혀 있으면 그걸로 대체
+    if move_in and "즉시입주" in move_in and feature:
+        # 패턴 예: "2025년 3월", "25년 3월", "25.03", "2025.03", "3월 입주", "3월말 입주가능" 등
+        _date_pat = re.search(
+            r"(\d{2,4}[년.]\s*\d{1,2}월?\w*|\d{1,2}월\w*)",
+            feature,
+        )
+        if _date_pat:
+            move_in = _date_pat.group(0).strip()
+
     # 중개사 (사무소명 + 주소 + 전화 + 휴대폰)
     r_name    = _get(realtor, "realtorName") or _get(addition, "realtorName") or _get(detail, "dealerName")
     r_address = _get(realtor, "address")
@@ -346,6 +434,14 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
     r_cell    = _get(realtor, "cellPhoneNo")
     parts = [p for p in [r_name, r_address, r_tel, r_cell] if p]
     dealer_name = "\n".join(parts)
+
+    # 평형번호 (전세 시세 API 요청에 사용)
+    ptp_no = str(
+        _get(detail, "ptpNo")
+        or _get(addition, "ptpNo")
+        or _get(space, "ptpNo")
+        or ""
+    )
 
     return {
         "collected_at":      datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -356,12 +452,15 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
         "price_main":        price_main,
         "rent_price":        rent_price,
         "move_in_date":      move_in,
-        "area_supply":       f"{area_supply}㎡" if area_supply else "",
-        "area_exclusive":    f"{area_exclusive}㎡" if area_exclusive else "",
-        "area_pyeong":       f"{area_pyeong}평" if area_pyeong != "" else "",
+        "area_supply":       f"{_to_pyeong(area_supply)}평" if area_supply else "",
+        "area_exclusive":    f"{_to_pyeong(area_exclusive)}평" if area_exclusive else "",
         "direction":         direction,
-        "household_by_type": f"{household_by_type}세대" if household_by_type else "",
-        "parking_count":     f"{parking_count}대" if parking_count else "",
+        "household_by_type": (f"{household_total}세대/{household_by_type}세대"
+                              if household_total and household_by_type
+                              else f"{household_total or household_by_type}세대"
+                              if (household_total or household_by_type) else ""),
+        "parking_count":     (f"{parking_count}대(세대당 {parking_ratio}대)" if parking_ratio
+                              else f"{parking_count}대") if parking_count else "",
         "rooms_baths":       rooms_baths,
         "floor":             floor,
         "entrance_type":     entrance_type,
@@ -371,6 +470,7 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
         "feature":           feature,
         "dealer_name":       dealer_name,
         "url":               url,
+        "_complex_no":       str(_get(detail, "hscpNo") or ""),  # 내부용, Excel 저장 제외
     }
 
 
@@ -380,7 +480,7 @@ def extract_fields(data: dict, article_no: str, url: str) -> dict:
 _COL_MIN = {
     "collected_at": 16, "article_no": 13, "complex_name": 14, "address": 22,
     "trade_type": 6, "price_main": 14, "rent_price": 13, "move_in_date": 16,
-    "area_supply": 10, "area_exclusive": 10, "area_pyeong": 8,
+    "area_supply": 10, "area_exclusive": 10,
     "direction": 8, "household_by_type": 14, "parking_count": 10, "rooms_baths": 10,
     "floor": 10, "entrance_type": 8, "heating": 14, "maintenance": 10,
     "building_use": 10, "feature": 30, "dealer_name": 28, "url": 50,
@@ -434,15 +534,13 @@ def append_row(ws, fields: dict, row_idx: int) -> None:
         cell  = ws.cell(row=row_idx, column=col_idx, value=text)
         cell.border = bdr
         cell.fill   = fill
-        if key == "dealer_name":
+        if key in ("feature", "url", "dealer_name"):
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        elif key in ("feature", "url"):
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
         else:
-            cell.alignment = Alignment(vertical="center", wrap_text=False)
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
 
-        # 데이터가 헤더보다 넓으면 열 너비 확장 (URL·매물특징 제외)
-        if text and key not in ("url", "feature"):
+        # 데이터가 헤더보다 넓으면 열 너비 확장 (URL·매물특징·중개사 제외)
+        if text and key not in ("url", "feature", "dealer_name"):
             col_letter = get_column_letter(col_idx)
             needed = _cell_width(text)
             current = ws.column_dimensions[col_letter].width or 0
@@ -655,6 +753,10 @@ def search_region_articles(
 
         log(f"  상세 조회 시작: {min(len(article_list), max_count)}개")
 
+        # 기보증금 실거래가 캐시 (complexNo별 1회 조회)
+        _pyeong_cache: dict[str, list] = {}   # cno → [{pyeongNo, exclusiveArea}]
+        _rp_cache: dict[tuple, dict]  = {}   # (cno, pyeongNo) → realPrice dict
+
         # ── 5. 각 매물 상세 조회 ────────────────────────────────────────────
         for i, art in enumerate(article_list[:max_count]):
             article_no = str(art.get("articleNo", ""))
@@ -676,7 +778,7 @@ def search_region_articles(
                     [article_no, jwt_token[0]],
                 )
 
-                if detail:
+                if detail and detail.get("articleDetail"):
                     # 올바른 URL: complexes/{hscpNo}?articleNo=...
                     complex_no = str(
                         detail.get("articleDetail", {}).get("hscpNo", "") or ""
@@ -692,6 +794,67 @@ def search_region_articles(
                     if any(kw in cname for kw in ("주상복합", "도시형", "생활주택")):
                         log(f"  ({i+1}/{len(article_list)}) 제외: {cname}")
                         continue
+                    # 기보증금 없으면 전세 실거래가로 채우기 (인라인)
+                    if not fields.get("rent_price") and complex_no:
+                        try:
+                            _ea = float(fields.get("area_exclusive", "").replace("평", "").strip() or "0") / 0.3025
+                        except:
+                            _ea = 0.0
+
+                        if complex_no not in _pyeong_cache:
+                            _pyeong_cache[complex_no] = page.evaluate(
+                                """async ([cno, jwt]) => {
+                                    const r = await fetch(
+                                        `https://new.land.naver.com/api/complexes/${cno}?sameAddressGroup=false`,
+                                        {headers: {'Authorization': 'Bearer ' + jwt,
+                                                   'Accept': 'application/json',
+                                                   'Referer': 'https://new.land.naver.com/'}}
+                                    );
+                                    if (!r.ok) return [];
+                                    const d = await r.json();
+                                    return (d.complexPyeongDetailList || []).map(p => ({
+                                        pyeongNo: String(p.pyeongNo),
+                                        exclusiveArea: parseFloat(p.exclusiveArea) || 0
+                                    }));
+                                }""",
+                                [complex_no, jwt_token[0]],
+                            ) or []
+
+                        _py_list = _pyeong_cache.get(complex_no, [])
+                        if _py_list:
+                            _best = (min(_py_list, key=lambda p: abs(p["exclusiveArea"] - _ea))
+                                     if _ea else _py_list[0])
+                            _pno = _best["pyeongNo"]
+                            _rk  = (complex_no, _pno)
+                            if _rk not in _rp_cache:
+                                _rp_cache[_rk] = page.evaluate(
+                                    """async ([cno, pno, jwt]) => {
+                                        const r = await fetch(
+                                            `https://new.land.naver.com/api/complexes/${cno}/prices/real?tradeType=B1&areaNo=${pno}&type=table`,
+                                            {headers: {'Authorization': 'Bearer ' + jwt,
+                                                       'Accept': 'application/json',
+                                                       'Referer': `https://new.land.naver.com/complexes/${cno}`}}
+                                        );
+                                        if (!r.ok) return null;
+                                        const d = await r.json();
+                                        const months = d.realPriceOnMonthList || [];
+                                        if (!months.length) return null;
+                                        const latest = [...(months[0].realPriceList || [])];
+                                        if (!latest.length) return null;
+                                        latest.sort((a, b) => Number(b.tradeDate) - Number(a.tradeDate));
+                                        return latest[0];
+                                    }""",
+                                    [complex_no, _pno, jwt_token[0]],
+                                )
+                            _rp = _rp_cache.get(_rk)
+                            if _rp:
+                                _ps  = (_rp.get("formattedPrice") or "").strip()
+                                _dt  = (_rp.get("formattedTradeYearMonth") or "")[:7]
+                                if _ps:
+                                    _dt  = _dt or datetime.now().strftime("%Y.%m")
+                                    fields["rent_price"] = f"{_ps} ({_dt}. 거래내역)"
+
+
                     all_fields.append(fields)
                     log(
                         f"  ({i+1}/{len(article_list)}) "
@@ -705,6 +868,164 @@ def search_region_articles(
 
             if (i + 1) % 10 == 0:
                 page.wait_for_timeout(300)
+
+
+        browser.close()
+
+    log(f"  완료: {len(all_fields)}개 수집")
+    return all_fields
+
+
+# ─── URL 목록 수집 (search_region_articles와 동일한 방식) ────────────────────
+
+def collect_articles_by_url_list(url_list: list[str], log=print) -> list[dict]:
+    """URL 목록으로 매물 상세 수집.  search_region_articles와 동일한 브라우저/JWT 방식 사용."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise RuntimeError("playwright 패키지가 필요합니다.")
+
+    # URL → (article_no, complex_no_from_url) 파싱
+    parsed: list[tuple[str, str, str]] = []   # (article_no, complex_no_hint, original_url)
+    for url in url_list:
+        try:
+            ano, cno = parse_url(url)
+            parsed.append((ano, cno, url))
+        except ValueError as e:
+            log(f"  URL 오류 — 건너뜀: {e}")
+
+    if not parsed:
+        return []
+
+    jwt_token: list[str | None] = [None]
+
+    def _on_request(req):
+        if "land.naver.com/api/articles" in req.url:
+            auth = req.headers.get("authorization", "")
+            if auth.startswith("Bearer "):
+                jwt_token[0] = auth[7:]
+
+    all_fields: list[dict] = []
+    _pyeong_cache: dict[str, list] = {}
+    _rp_cache: dict[tuple, dict]  = {}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(user_agent=_UA, locale="ko-KR")
+        page = ctx.new_page()
+        page.on("request", _on_request)
+
+        # JWT 획득: search_region_articles와 동일한 페이지로 이동 (세션/쿠키 동일하게 확보)
+        log("  브라우저 인증 중...")
+        page.goto(
+            "https://new.land.naver.com/complexes/338?ms=37.5762,127.0348,15&a=APT&b=A1&e=RETAIL",
+            wait_until="networkidle", timeout=30000,
+        )
+        page.wait_for_timeout(2000)
+
+        if not jwt_token[0]:
+            browser.close()
+            raise RuntimeError("JWT 토큰 획득 실패 — 네이버 부동산 접속이 불가합니다.")
+
+        log("  인증 완료")
+
+        for i, (article_no, complex_no_hint, original_url) in enumerate(parsed):
+            try:
+                nav_url = (
+                    f"https://new.land.naver.com/complexes/{complex_no_hint}?articleNo={article_no}"
+                    if complex_no_hint
+                    else f"https://new.land.naver.com/articles/{article_no}"
+                )
+
+                try:
+                    with page.expect_response(
+                        lambda r, _a=article_no: f"/api/articles/{_a}" in r.url and r.status == 200,
+                        timeout=20000,
+                    ) as resp_info:
+                        page.goto(nav_url, wait_until="domcontentloaded", timeout=20000)
+                    detail = resp_info.value.json()
+                except Exception:
+                    detail = None
+
+                if not detail or not detail.get("articleDetail"):
+                    log(f"  ({i+1}/{len(parsed)}) 매물 {article_no} 유효 데이터 없음 — 만료/비공개 매물")
+                    continue
+
+                complex_no = str(detail.get("articleDetail", {}).get("hscpNo", "") or "")
+                article_url = (
+                    f"https://new.land.naver.com/complexes/{complex_no}?articleNo={article_no}"
+                    if complex_no else original_url
+                )
+
+                fields = extract_fields(detail, article_no, article_url)
+                cname  = fields.get("complex_name", "")
+
+                # 기보증금 없으면 전세 실거래가로 채우기 (search_region_articles와 동일)
+                if not fields.get("rent_price") and complex_no:
+                    try:
+                        _ea = float(fields.get("area_exclusive", "").replace("평", "").strip() or "0") / 0.3025
+                    except Exception:
+                        _ea = 0.0
+
+                    if complex_no not in _pyeong_cache:
+                        _pyeong_cache[complex_no] = page.evaluate(
+                            """async ([cno, jwt]) => {
+                                const r = await fetch(
+                                    `https://new.land.naver.com/api/complexes/${cno}?sameAddressGroup=false`,
+                                    {headers: {'Authorization': 'Bearer ' + jwt,
+                                               'Accept': 'application/json',
+                                               'Referer': 'https://new.land.naver.com/'}}
+                                );
+                                if (!r.ok) return [];
+                                const d = await r.json();
+                                return (d.complexPyeongDetailList || []).map(p => ({
+                                    pyeongNo: String(p.pyeongNo),
+                                    exclusiveArea: parseFloat(p.exclusiveArea) || 0
+                                }));
+                            }""",
+                            [complex_no, jwt_token[0]],
+                        ) or []
+
+                    _py_list = _pyeong_cache.get(complex_no, [])
+                    if _py_list:
+                        _best = (min(_py_list, key=lambda p: abs(p["exclusiveArea"] - _ea))
+                                 if _ea else _py_list[0])
+                        _pno = _best["pyeongNo"]
+                        _rk  = (complex_no, _pno)
+                        if _rk not in _rp_cache:
+                            _rp_cache[_rk] = page.evaluate(
+                                """async ([cno, pno, jwt]) => {
+                                    const r = await fetch(
+                                        `https://new.land.naver.com/api/complexes/${cno}/prices/real?tradeType=B1&areaNo=${pno}&type=table`,
+                                        {headers: {'Authorization': 'Bearer ' + jwt,
+                                                   'Accept': 'application/json',
+                                                   'Referer': `https://new.land.naver.com/complexes/${cno}`}}
+                                    );
+                                    if (!r.ok) return null;
+                                    const d = await r.json();
+                                    const months = d.realPriceOnMonthList || [];
+                                    if (!months.length) return null;
+                                    const latest = [...(months[0].realPriceList || [])];
+                                    if (!latest.length) return null;
+                                    latest.sort((a, b) => Number(b.tradeDate) - Number(a.tradeDate));
+                                    return latest[0];
+                                }""",
+                                [complex_no, _pno, jwt_token[0]],
+                            )
+                        _rp = _rp_cache.get(_rk)
+                        if _rp:
+                            _ps = (_rp.get("formattedPrice") or "").strip()
+                            _dt = (_rp.get("formattedTradeYearMonth") or "")[:7]
+                            if _ps:
+                                _dt = _dt or datetime.now().strftime("%Y.%m")
+                                fields["rent_price"] = f"{_ps} ({_dt}. 거래내역)"
+
+
+                all_fields.append(fields)
+                log(f"  ({i+1}/{len(parsed)}) {cname} — {fields.get('price_main', '')}")
+
+            except Exception as e:
+                log(f"  ({i+1}/{len(parsed)}) 매물 {article_no} 오류: {e}")
 
         browser.close()
 
@@ -761,8 +1082,11 @@ def main():
         print(json.dumps(data, ensure_ascii=False, indent=2))
         print("──────────────────────────────────────────────────\n")
 
-    # 4. 필드 추출 & 저장
-    fields   = extract_fields(data, article_no, args.url)
+    # 4. 필드 추출
+    fields = extract_fields(data, article_no, args.url)
+
+    # 내부 전용 키 제거 후 저장
+    fields.pop("_complex_no", None)
     next_row = ws.max_row + 1
     append_row(ws, fields, next_row)
     wb.save(output_path)

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.DS_Store
+*.xlsx
+*.pdf
+naver_land_ui.py
+desktop/
+data/
+.git/
+*.md
