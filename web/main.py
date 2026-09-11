@@ -84,6 +84,46 @@ async def root():
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
+@app.get("/api/debug/network")
+async def debug_network():
+    """Render 서버 -> 네이버 부동산 네트워크 접근 가능 여부 진단용 (임시)."""
+    import time
+    import requests as _requests
+
+    result = {}
+
+    try:
+        t0 = time.time()
+        r = _requests.get(
+            "https://new.land.naver.com/",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        result["plain_requests"] = {
+            "status": r.status_code,
+            "elapsed_sec": round(time.time() - t0, 2),
+        }
+    except Exception as e:
+        result["plain_requests"] = {"error": f"{type(e).__name__}: {e}"}
+
+    try:
+        t0 = time.time()
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            result["chromium_launch_sec"] = round(time.time() - t0, 2)
+            page = browser.new_page()
+            t1 = time.time()
+            page.goto("https://new.land.naver.com/", wait_until="domcontentloaded", timeout=15000)
+            result["browser_goto_sec"] = round(time.time() - t1, 2)
+            browser.close()
+    except Exception as e:
+        result["browser_goto"] = {"error": f"{type(e).__name__}: {e}"}
+
+    return result
+
+
 @app.post("/api/session/new")
 async def new_session():
     """새 빈 세션 생성 — 페이지 로드 시 호출."""
