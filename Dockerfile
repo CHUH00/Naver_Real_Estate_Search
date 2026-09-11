@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
 
 # Python deps
 COPY requirements.txt .
-RUN pip install --no-cache-dir fastapi uvicorn[standard] playwright requests openpyxl
+RUN pip install --no-cache-dir fastapi uvicorn[standard] playwright requests openpyxl python-multipart
 
 # Playwright browser (chromium only)
 RUN playwright install chromium --with-deps
