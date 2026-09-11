@@ -5,3 +5,8 @@ __pycache__/
 *.pyd
 .env
 *.log
+
+# Xcode
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/**/DerivedData/

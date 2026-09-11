@@ -1,0 +1,13 @@
+[Unit]
+Description=Cloudflare Tunnel (naverland-backend 외부 공개)
+After=naverland-backend.service
+Requires=naverland-backend.service
+
+[Service]
+Restart=always
+RestartSec=5
+# 표준출력을 파일로도 남겨서 발급된 URL을 나중에 쉽게 확인할 수 있게 함
+ExecStart=/usr/bin/bash -c '/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:8080 2>&1 | tee /var/log/cloudflared-url.log'
+
+[Install]
+WantedBy=multi-user.target

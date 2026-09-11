@@ -1,0 +1,18 @@
+[Unit]
+Description=네이버 부동산 매물 수집기 백엔드 (Docker)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=5
+ExecStartPre=-/usr/bin/docker stop naverland-backend
+ExecStartPre=-/usr/bin/docker rm naverland-backend
+ExecStart=/usr/bin/docker run --name naverland-backend \
+  -p 127.0.0.1:8080:8080 \
+  -v /opt/naverland/data:/data \
+  naverland-backend:latest
+ExecStop=/usr/bin/docker stop naverland-backend
+
+[Install]
+WantedBy=multi-user.target
