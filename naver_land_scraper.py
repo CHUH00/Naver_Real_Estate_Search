@@ -177,8 +177,8 @@ def fetch_via_browser(article_no: str, complex_no: str, original_url: str, log=p
         page = ctx.new_page()
         page.on("request", on_request)
         page.on("response", on_response)
-        page.goto(navigate_url, wait_until="networkidle", timeout=30000)
-        page.wait_for_timeout(3000)
+        page.goto(navigate_url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(4000)
 
         # 기보증금 없으면 전세 실거래가 인라인 조회 (세션 유지 중에)
         if "data" in captured and jwt_token[0] and complex_no:
@@ -655,9 +655,9 @@ def search_region_articles(
         log("  브라우저 인증 중...")
         page.goto(
             "https://new.land.naver.com/complexes/338?ms=37.5762,127.0348,15&a=APT&b=A1&e=RETAIL",
-            wait_until="networkidle", timeout=30000,
+            wait_until="domcontentloaded", timeout=30000,
         )
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(4000)
 
         if not jwt_token[0]:
             browser.close()
@@ -919,9 +919,9 @@ def collect_articles_by_url_list(url_list: list[str], log=print) -> list[dict]:
         log("  브라우저 인증 중...")
         page.goto(
             "https://new.land.naver.com/complexes/338?ms=37.5762,127.0348,15&a=APT&b=A1&e=RETAIL",
-            wait_until="networkidle", timeout=30000,
+            wait_until="domcontentloaded", timeout=30000,
         )
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(4000)
 
         if not jwt_token[0]:
             browser.close()
