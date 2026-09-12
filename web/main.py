@@ -28,6 +28,7 @@ from naver_land_scraper import (
     parse_url,
     search_region_articles,
 )
+from . import relay
 
 app = FastAPI(title="네이버 부동산 매물 수집기")
 
@@ -148,6 +149,16 @@ async def ws_logs(websocket: WebSocket, job_id: str):
         _jobs.pop(job_id, None)
 
 
+@app.websocket("/ws/relay/{session_id}")
+async def ws_relay(websocket: WebSocket, session_id: str):
+    """아이폰 앱이 붙어서, 이 서버 대신 네이버로 나가는 트래픽을 중계해준다.
+
+    네이버가 클라우드 서버 IP를 차단하기 때문에, 실제 네이버 접속은 항상
+    이 웹소켓에 연결된 아이폰을 거쳐서 나간다 (web/relay.py 참고).
+    """
+    await relay.phone_relay_endpoint(websocket, session_id)
+
+
 # ── Request models ────────────────────────────────────────────────────────────
 
 class RegionRequest(BaseModel):
@@ -227,7 +238,15 @@ def _make_log_fn(q: asyncio.Queue, loop: asyncio.AbstractEventLoop):
 
 @app.post("/api/scrape/region")
 async def scrape_region(req: RegionRequest):
+    if not relay.is_phone_connected(req.session_id):
+        return JSONResponse(
+            {"error": "아이폰 앱이 서버에 연결되어 있지 않습니다. 앱을 켜둔 상태로 다시 시도해 주세요."},
+            status_code=409,
+        )
+
     excel_path = _get_session_file(req.session_id)
+    socks_port = await relay.get_or_start_socks_server(req.session_id)
+    proxy = {"server": f"socks5://127.0.0.1:{socks_port}"}
 
     job_id = str(_uuid.uuid4())[:8]
     q: asyncio.Queue = asyncio.Queue()
@@ -240,7 +259,7 @@ async def scrape_region(req: RegionRequest):
             log = _make_log_fn(q, loop)
             log(f"\n── [{i}/{len(req.regions)}] {region} ──", "accent")
             try:
-                articles = search_region_articles(region, log=log, max_count=req.max_count)
+                articles = search_region_articles(region, log=log, max_count=req.max_count, proxy=proxy)
             except RuntimeError as e:
                 log(f"  ✗ 실패: {e}", "error"); continue
             except Exception as e:
@@ -281,7 +300,15 @@ async def scrape_region(req: RegionRequest):
 
 @app.post("/api/scrape/urls")
 async def scrape_urls(req: UrlRequest):
+    if not relay.is_phone_connected(req.session_id):
+        return JSONResponse(
+            {"error": "아이폰 앱이 서버에 연결되어 있지 않습니다. 앱을 켜둔 상태로 다시 시도해 주세요."},
+            status_code=409,
+        )
+
     excel_path = _get_session_file(req.session_id)
+    socks_port = await relay.get_or_start_socks_server(req.session_id)
+    proxy = {"server": f"socks5://127.0.0.1:{socks_port}"}
 
     job_id = str(_uuid.uuid4())[:8]
     q: asyncio.Queue = asyncio.Queue()
@@ -317,7 +344,7 @@ async def scrape_urls(req: UrlRequest):
             return
 
         try:
-            articles = collect_articles_by_url_list(urls_to_fetch, log=log)
+            articles = collect_articles_by_url_list(urls_to_fetch, log=log, proxy=proxy)
         except Exception as e:
             log(f"✗ 수집 오류: {e}", "error")
             loop.call_soon_threadsafe(q.put_nowait, {"type": "done", "ok": 0, "skip": skip, "filtered": 0, "rows": _count_rows(excel_path)})

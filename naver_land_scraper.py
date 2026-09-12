@@ -615,6 +615,7 @@ def search_region_articles(
     region_name: str,
     log=print,
     max_count: int = 500,
+    proxy: dict | None = None,
 ) -> list[dict]:
     """지역명으로 전세안고 매매 매물 목록 수집 후 상세 필드까지 반환.
 
@@ -646,7 +647,7 @@ def search_region_articles(
     all_fields: list[dict] = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, proxy=proxy)
         ctx = browser.new_context(user_agent=_UA, locale="ko-KR")
         page = ctx.new_page()
         page.on("request", _on_request)
@@ -878,7 +879,7 @@ def search_region_articles(
 
 # ─── URL 목록 수집 (search_region_articles와 동일한 방식) ────────────────────
 
-def collect_articles_by_url_list(url_list: list[str], log=print) -> list[dict]:
+def collect_articles_by_url_list(url_list: list[str], log=print, proxy: dict | None = None) -> list[dict]:
     """URL 목록으로 매물 상세 수집.  search_region_articles와 동일한 브라우저/JWT 방식 사용."""
     try:
         from playwright.sync_api import sync_playwright
@@ -910,7 +911,7 @@ def collect_articles_by_url_list(url_list: list[str], log=print) -> list[dict]:
     _rp_cache: dict[tuple, dict]  = {}
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, proxy=proxy)
         ctx = browser.new_context(user_agent=_UA, locale="ko-KR")
         page = ctx.new_page()
         page.on("request", _on_request)

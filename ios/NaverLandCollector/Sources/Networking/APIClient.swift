@@ -125,7 +125,11 @@ final class APIClient {
 
     /// http(s) base URL을 ws(s) 스킴으로 바꾼 웹소켓 URL.
     func websocketURL(jobID: String) -> URL? {
-        guard var comps = URLComponents(string: baseURLString + "/ws/\(jobID)") else { return nil }
+        websocketURL(path: "/ws/\(jobID)")
+    }
+
+    func websocketURL(path: String) -> URL? {
+        guard var comps = URLComponents(string: baseURLString + path) else { return nil }
         if comps.scheme == "https" { comps.scheme = "wss" }
         else if comps.scheme == "http" { comps.scheme = "ws" }
         return comps.url

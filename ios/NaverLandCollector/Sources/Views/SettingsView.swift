@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var relay = RelayClient.shared
     @State private var baseURL: String = APIClient.shared.baseURLString
     @State private var testResult: String?
     @State private var isTesting = false
@@ -19,8 +20,7 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                     Button("저장") {
                         APIClient.shared.baseURLString = baseURL.trimmingCharacters(in: .whitespaces)
-                        model.sessionID = nil
-                        Task { await model.ensureSession() }
+                        Task { await model.restartSession() }
                     }
                     Button {
                         Task { await testConnection() }
@@ -34,6 +34,18 @@ struct SettingsView: View {
                     if let testResult {
                         Text(testResult).font(.footnote).foregroundStyle(.secondary)
                     }
+                }
+
+                Section {
+                    HStack {
+                        Circle()
+                            .fill(relay.isConnected ? Color.green : Color.red)
+                            .frame(width: 10, height: 10)
+                        Text(relay.isConnected ? "중계 연결됨 — 이 아이폰을 통해 네이버 접속" : "중계 연결 안 됨")
+                        Spacer()
+                    }
+                } footer: {
+                    Text("네이버 부동산이 서버(클라우드) IP를 차단하기 때문에, 실제 접속은 이 아이폰의 통신망을 거쳐서 이루어집니다. 수집 중에는 앱을 꺼두지 마세요.")
                 }
 
                 Section("엑셀 파일") {

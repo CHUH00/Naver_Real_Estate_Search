@@ -13,12 +13,23 @@ final class AppModel: ObservableObject {
     func ensureSession() async {
         guard sessionID == nil else { return }
         do {
-            sessionID = try await APIClient.shared.newSession()
+            let sid = try await APIClient.shared.newSession()
+            sessionID = sid
+            RelayClient.shared.start(sessionID: sid)
         } catch APIError.badURL {
             // 서버 주소를 아직 설정하지 않은 상태 — 설정 탭에서 입력할 때까지 조용히 기다린다.
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// 설정 탭에서 서버 주소를 바꿨을 때 호출 — 기존 릴레이 연결을 끊고 새 세션으로 다시 연결.
+    func restartSession() async {
+        RelayClient.shared.stop()
+        sessionID = nil
+        listings = []
+        rowCount = 0
+        await ensureSession()
     }
 
     func runRegionScrape(regions: [String], filters: ScrapeFilters) async {

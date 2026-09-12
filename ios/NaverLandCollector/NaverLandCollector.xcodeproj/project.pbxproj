@@ -16,6 +16,7 @@
 		7685DA77EB375297FAD0D889 /* Filters.swift in Sources */ = {isa = PBXBuildFile; fileRef = C587948F64486D79F6954A71 /* Filters.swift */; };
 		7F3E738003324865900368A4 /* ChipButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2596A01B333568FE998CA84 /* ChipButton.swift */; };
 		80CA97D80CABA20A3AA2FC34 /* WebSocketLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E1FE72ECE7A1769C90B935 /* WebSocketLogger.swift */; };
+		81859B3F8AFD4877F68B1EC2 /* RelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 195A97004C16D16E7BC6328A /* RelayClient.swift */; };
 		B3DE5EE84930D9677C7EC1F9 /* RegionData.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA4AAEE8235A46B7995F5D99 /* RegionData.swift */; };
 		B4F1CC6D4C84873EA93481E1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D756B2C811358EA12E85ED2 /* SettingsView.swift */; };
 		BE132996C7C5B069ABCEB0B5 /* FilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2BD606B38083EF8B4DE87E /* FilterSheet.swift */; };
@@ -25,6 +26,7 @@
 
 /* Begin PBXFileReference section */
 		0D756B2C811358EA12E85ED2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		195A97004C16D16E7BC6328A /* RelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayClient.swift; sourceTree = "<group>"; };
 		4C1255BF5F12D3C12B716282 /* NaverLandApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaverLandApp.swift; sourceTree = "<group>"; };
 		63453B3EF75D1E0B5B5CF0F8 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		81E1FE72ECE7A1769C90B935 /* WebSocketLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketLogger.swift; sourceTree = "<group>"; };
@@ -99,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				C252312DDC1C8257B72D84E6 /* APIClient.swift */,
+				195A97004C16D16E7BC6328A /* RelayClient.swift */,
 				81E1FE72ECE7A1769C90B935 /* WebSocketLogger.swift */,
 			);
 			path = Networking;
@@ -183,6 +186,7 @@
 				14D394F0087AAFC42FAC501C /* LogView.swift in Sources */,
 				58A1DE7D12E44EFB0DE7D5F9 /* NaverLandApp.swift in Sources */,
 				B3DE5EE84930D9677C7EC1F9 /* RegionData.swift in Sources */,
+				81859B3F8AFD4877F68B1EC2 /* RelayClient.swift in Sources */,
 				DC019001E73AD572F7E39BA6 /* SearchView.swift in Sources */,
 				B4F1CC6D4C84873EA93481E1 /* SettingsView.swift in Sources */,
 				80CA97D80CABA20A3AA2FC34 /* WebSocketLogger.swift in Sources */,
