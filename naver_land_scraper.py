@@ -595,21 +595,49 @@ _UA = (
 )
 
 
+import os
+
 _geocode_cache: dict[str, tuple[float, float]] = {}
 _last_nominatim_call: list[float] = [0.0]
 _NOMINATIM_MIN_INTERVAL = 1.1  # Nominatim 사용 정책: 초당 1건 이하
 
+# Nominatim 커뮤니티 서버는 클라우드/서버 호스팅 IP를 장기간(때로는 몇 시간~며칠) 차단하는
+# 경우가 있어, 재시도만으로는 해결되지 않을 수 있음. 자주 쓰는 지역은 미리 확보해둔 좌표를
+# 오프라인 캐시로 우선 사용해 외부 API 자체를 타지 않도록 함 (검증된 값, 2026-09-12 확인).
+_SEED_COORDS: dict[str, tuple[float, float]] = {
+    "목동": (37.5261241, 126.8645174),
+    "신월동": (37.5290495, 126.8335466),
+    "신정동": (37.5163163, 126.8634455),
+}
 
-def _geocode(region_name: str, retries: int = 3, log=print) -> tuple[float, float]:
-    """Nominatim으로 지역명 → (lat, lon) 변환 (API 키 불필요).
+# 선택 사항: KAKAO_REST_API_KEY 환경변수가 설정되어 있으면 Nominatim보다 먼저 사용.
+# 카카오 로컬 API는 무료로 발급 가능하고 서버/클라우드 IP를 차단하지 않아 운영 환경에 더 적합함.
+# https://developers.kakao.com/ → 내 애플리케이션 → REST API 키
+_KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "").strip()
 
-    - 같은 프로세스 내 동일 지역명은 캐시 재사용 (중복 호출 방지)
+
+def _geocode_kakao(region_name: str) -> tuple[float, float]:
+    import urllib.request, urllib.parse
+
+    encoded = urllib.parse.quote(region_name)
+    url = f"https://dapi.kakao.com/v2/local/search/keyword.json?query={encoded}"
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"KakaoAK {_KAKAO_REST_API_KEY}"}
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.loads(r.read())
+    docs = data.get("documents") or []
+    if not docs:
+        raise RuntimeError(f"'{region_name}' 지역을 카카오 API에서 찾을 수 없습니다.")
+    return float(docs[0]["y"]), float(docs[0]["x"])
+
+
+def _geocode_nominatim(region_name: str, retries: int, log) -> tuple[float, float]:
+    """Nominatim으로 지역명 → (lat, lon) 변환.
+
     - Nominatim 사용 정책(최대 초당 1건)을 지키기 위해 호출 간 최소 간격 보장
     - 429/일시적 오류에 대해 지수 백오프로 재시도
     """
-    if region_name in _geocode_cache:
-        return _geocode_cache[region_name]
-
     import urllib.request, urllib.parse, urllib.error
 
     encoded = urllib.parse.quote(region_name)
@@ -641,9 +669,7 @@ def _geocode(region_name: str, retries: int = 3, log=print) -> tuple[float, floa
                 data = json.loads(r.read())
             if not data:
                 raise RuntimeError(f"'{region_name}' 지역 좌표를 찾을 수 없습니다.")
-            result = (float(data[0]["lat"]), float(data[0]["lon"]))
-            _geocode_cache[region_name] = result
-            return result
+            return float(data[0]["lat"]), float(data[0]["lon"])
 
         except urllib.error.HTTPError as e:
             last_err = e
@@ -659,7 +685,34 @@ def _geocode(region_name: str, retries: int = 3, log=print) -> tuple[float, floa
             log(f"  좌표 조회 네트워크 오류 — {wait}초 후 재시도 ({attempt + 1}/{retries})")
             time.sleep(wait)
 
-    raise RuntimeError(f"'{region_name}' 지역 좌표 조회 실패 (재시도 {retries}회 초과): {last_err}")
+    raise RuntimeError(f"재시도 {retries}회 초과: {last_err}")
+
+
+def _geocode(region_name: str, retries: int = 3, log=print) -> tuple[float, float]:
+    """지역명 → (lat, lon) 변환. 순서: 캐시 → 오프라인 시드 → 카카오(키 있을 때) → Nominatim."""
+    if region_name in _geocode_cache:
+        return _geocode_cache[region_name]
+
+    if region_name in _SEED_COORDS:
+        result = _SEED_COORDS[region_name]
+        _geocode_cache[region_name] = result
+        return result
+
+    if _KAKAO_REST_API_KEY:
+        try:
+            result = _geocode_kakao(region_name)
+            _geocode_cache[region_name] = result
+            return result
+        except Exception as e:
+            log(f"  카카오 좌표 조회 실패, Nominatim으로 재시도: {e}")
+
+    try:
+        result = _geocode_nominatim(region_name, retries, log)
+    except Exception as e:
+        raise RuntimeError(f"'{region_name}' 지역 좌표 조회 실패: {e}")
+
+    _geocode_cache[region_name] = result
+    return result
 
 
 def search_region_articles(
