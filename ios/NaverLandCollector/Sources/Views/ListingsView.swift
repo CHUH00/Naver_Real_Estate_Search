@@ -26,13 +26,18 @@ struct ListingsView: View {
                             NavigationLink(value: listing.id) {
                                 ListingRow(listing: listing)
                             }
+                            .listRowBackground(Theme.background)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                         }
                     }
                     .listStyle(.plain)
+                    .themedListBackground()
                     .searchable(text: $searchText, prompt: "단지명 또는 주소 검색")
                     .refreshable { await model.refreshListings() }
                 }
             }
+            .background(Theme.background)
             .navigationTitle("매물 (\(model.rowCount))")
             .navigationDestination(for: Int.self) { id in
                 if let listing = model.listings.first(where: { $0.id == id }) {
@@ -50,6 +55,7 @@ struct ListingsView: View {
                             Image(systemName: "arrow.clockwise")
                         }
                     }
+                    .tint(Theme.accent)
                 }
             }
             .task { await model.refreshListings() }
@@ -61,18 +67,22 @@ private struct ListingRow: View {
     let listing: Listing
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(listing.complexName).font(.headline)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                Text(listing.complexName)
+                    .font(.headline)
+                    .foregroundStyle(Theme.textPrimary)
                 Spacer()
                 Text(Listing.formatWon(listing.priceMain))
                     .font(.headline)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.accent)
             }
             if !listing.address.isEmpty {
-                Text(listing.address).font(.footnote).foregroundStyle(.secondary)
+                Text(listing.address)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
             }
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 if !listing.areaExclusive.isEmpty {
                     Label("\(listing.areaExclusive)평", systemImage: "square.dashed")
                 }
@@ -84,9 +94,16 @@ private struct ListingRow: View {
                 }
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.textSecondary)
         }
-        .padding(.vertical, 4)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                .strokeBorder(Theme.border, lineWidth: 1)
+        )
     }
 }
 
@@ -102,23 +119,35 @@ struct ListingDetailView: View {
 
     var body: some View {
         List {
-            ForEach(displayOrder, id: \.self) { key in
-                let value = listing[key]
-                if !value.isEmpty {
-                    HStack(alignment: .top) {
-                        Text(key).foregroundStyle(.secondary).frame(width: 130, alignment: .leading)
-                        Text(value)
-                        Spacer()
+            Section {
+                ForEach(displayOrder, id: \.self) { key in
+                    let value = listing[key]
+                    if !value.isEmpty {
+                        HStack(alignment: .top) {
+                            Text(key)
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(width: 130, alignment: .leading)
+                            Text(value)
+                                .foregroundStyle(Theme.textPrimary)
+                            Spacer()
+                        }
+                        .font(.subheadline)
                     }
-                    .font(.subheadline)
                 }
             }
+            .listRowBackground(Theme.surface)
+
             if let url = URL(string: listing.url), !listing.url.isEmpty {
-                Link(destination: url) {
-                    Label("네이버 부동산에서 보기", systemImage: "safari")
+                Section {
+                    Link(destination: url) {
+                        Label("네이버 부동산에서 보기", systemImage: "safari")
+                            .foregroundStyle(Theme.accent)
+                    }
                 }
+                .listRowBackground(Theme.surface)
             }
         }
+        .themedListBackground()
         .navigationTitle(listing.complexName)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -130,14 +159,18 @@ struct ContentUnavailableCompat: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Image(systemName: "tray")
                 .font(.system(size: 40))
-                .foregroundStyle(.secondary)
-            Text(title).font(.headline)
-            Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .foregroundStyle(Theme.textSecondary)
+            Text(title).font(.headline).foregroundStyle(Theme.textPrimary)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.background)
     }
 }

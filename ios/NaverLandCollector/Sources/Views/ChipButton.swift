@@ -6,7 +6,7 @@ struct ChipButton: View {
     let color: Color
     let action: () -> Void
 
-    init(_ title: String, isSelected: Bool, color: Color = .accentColor, action: @escaping () -> Void) {
+    init(_ title: String, isSelected: Bool, color: Color = Theme.accent, action: @escaping () -> Void) {
         self.title = title
         self.isSelected = isSelected
         self.color = color
@@ -17,11 +17,14 @@ struct ChipButton: View {
         Button(action: action) {
             Text(title)
                 .font(.footnote.weight(isSelected ? .semibold : .regular))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(isSelected ? color : Color(.secondarySystemBackground))
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(isSelected ? color : Theme.surfaceElevated)
+                .foregroundStyle(isSelected ? Theme.background : Theme.textPrimary)
                 .clipShape(Capsule())
+                .overlay(
+                    Capsule().strokeBorder(isSelected ? Color.clear : Theme.border, lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
     }

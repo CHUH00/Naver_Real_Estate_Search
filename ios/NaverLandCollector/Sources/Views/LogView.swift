@@ -7,7 +7,7 @@ struct LogView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: 3) {
                         ForEach(logger.entries) { entry in
                             Text(entry.message.isEmpty ? " " : entry.message)
                                 .font(.system(.footnote, design: .monospaced))
@@ -17,6 +17,7 @@ struct LogView: View {
                         if let summary = logger.resultSummary {
                             Text(summary)
                                 .font(.footnote.bold())
+                                .foregroundStyle(Theme.textPrimary)
                                 .padding(.top, 6)
                         }
                     }
@@ -29,17 +30,19 @@ struct LogView: View {
                     }
                 }
             }
+            .background(Theme.background)
             .navigationTitle("수집 로그")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("지우기") { logger.clear() }
+                        .foregroundStyle(Theme.accent)
                 }
             }
             .overlay(alignment: .bottom) {
                 if logger.isRunning {
                     HStack(spacing: 8) {
-                        ProgressView()
-                        Text("수집 중…")
+                        ProgressView().tint(Theme.accent)
+                        Text("수집 중…").foregroundStyle(Theme.textPrimary)
                     }
                     .font(.footnote)
                     .padding(.horizontal, 14)
@@ -53,11 +56,11 @@ struct LogView: View {
 
     private func color(for tag: String) -> Color {
         switch tag {
-        case "success": return .green
-        case "error": return .red
-        case "info": return .blue
-        case "accent": return .orange
-        default: return .secondary
+        case "success": return Theme.success
+        case "error": return Theme.error
+        case "info": return Theme.info
+        case "accent": return Theme.accent
+        default: return Theme.textSecondary
         }
     }
 }

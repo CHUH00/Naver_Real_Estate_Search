@@ -13,15 +13,17 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("서버 주소") {
-                    TextField("예: https://xxxx.trycloudflare.com", text: $baseURL)
+                Section {
+                    TextField("예: https://naverland-backend.onrender.com", text: $baseURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .tint(Theme.accent)
                     Button("저장") {
                         APIClient.shared.baseURLString = baseURL.trimmingCharacters(in: .whitespaces)
                         Task { await model.restartSession() }
                     }
+                    .foregroundStyle(Theme.accent)
                     Button {
                         Task { await testConnection() }
                     } label: {
@@ -31,27 +33,34 @@ struct SettingsView: View {
                             if isTesting { ProgressView() }
                         }
                     }
+                    .foregroundStyle(Theme.accent)
                     if let testResult {
-                        Text(testResult).font(.footnote).foregroundStyle(.secondary)
+                        Text(testResult).font(.footnote).foregroundStyle(Theme.textSecondary)
                     }
+                } header: {
+                    Text("서버 주소").foregroundStyle(Theme.textSecondary)
                 }
+                .listRowBackground(Theme.surface)
 
                 Section {
                     HStack {
                         Circle()
-                            .fill(relay.isConnected ? Color.green : Color.red)
+                            .fill(relay.isConnected ? Theme.success : Theme.error)
                             .frame(width: 10, height: 10)
                         Text(relay.isConnected ? "중계 연결됨 — 이 아이폰을 통해 네이버 접속" : "중계 연결 안 됨")
+                            .foregroundStyle(Theme.textPrimary)
                         Spacer()
                     }
                 } footer: {
                     Text("네이버 부동산이 서버(클라우드) IP를 차단하기 때문에, 실제 접속은 이 아이폰의 통신망을 거쳐서 이루어집니다. 수집 중에는 앱을 꺼두지 마세요.")
+                        .foregroundStyle(Theme.textSecondary)
                 }
+                .listRowBackground(Theme.surface)
 
-                Section("엑셀 파일") {
+                Section {
                     Text("수집된 모든 매물은 서버에 엑셀 파일로도 저장됩니다. 파일을 내려받아 공유하거나 다른 앱에서 열 수 있습니다.")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                     Button {
                         Task { await downloadExcel() }
                     } label: {
@@ -61,17 +70,26 @@ struct SettingsView: View {
                             if isDownloading { ProgressView() }
                         }
                     }
+                    .foregroundStyle(Theme.accent)
                     .disabled(isDownloading)
+                } header: {
+                    Text("엑셀 파일").foregroundStyle(Theme.textSecondary)
                 }
+                .listRowBackground(Theme.surface)
 
-                Section("세션") {
+                Section {
                     Text("저장 \(model.rowCount)건")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                     Button("전체 초기화", role: .destructive) {
                         showResetConfirm = true
                     }
+                    .foregroundStyle(Theme.error)
+                } header: {
+                    Text("세션").foregroundStyle(Theme.textSecondary)
                 }
+                .listRowBackground(Theme.surface)
             }
+            .themedListBackground()
             .navigationTitle("설정")
             .sheet(item: Binding(
                 get: { shareURL.map { IdentifiableURL(url: $0) } },

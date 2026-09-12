@@ -4,6 +4,23 @@ struct ContentView: View {
     @StateObject private var model = AppModel()
     @State private var selectedTab = 0
 
+    init() {
+        let tabAppearance = UITabBarAppearance()
+        tabAppearance.configureWithOpaqueBackground()
+        tabAppearance.backgroundColor = UIColor(Theme.surface)
+        UITabBar.appearance().standardAppearance = tabAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+
+        let navAppearance = UINavigationBarAppearance()
+        navAppearance.configureWithOpaqueBackground()
+        navAppearance.backgroundColor = UIColor(Theme.background)
+        navAppearance.titleTextAttributes = [.foregroundColor: UIColor(Theme.textPrimary)]
+        navAppearance.largeTitleTextAttributes = [.foregroundColor: UIColor(Theme.textPrimary)]
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+        UINavigationBar.appearance().compactAppearance = navAppearance
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             SearchView(model: model, onStarted: { selectedTab = 2 })
@@ -22,6 +39,8 @@ struct ContentView: View {
                 .tabItem { Label("설정", systemImage: "gearshape") }
                 .tag(3)
         }
+        .tint(Theme.accent)
+        .preferredColorScheme(.dark)
         .task { await model.ensureSession() }
         .alert("오류", isPresented: Binding(
             get: { model.errorMessage != nil },

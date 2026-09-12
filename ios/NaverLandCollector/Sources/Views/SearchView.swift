@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SearchView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var relay = RelayClient.shared
     var onStarted: () -> Void
 
     @State private var mode = 0 // 0: 지역, 1: URL
@@ -29,6 +30,7 @@ struct SearchView: View {
                     }
                     .pickerStyle(.segmented)
                 }
+                .listRowBackground(Theme.surface)
 
                 if mode == 0 {
                     regionSection
@@ -41,13 +43,18 @@ struct SearchView: View {
                         showFilters = true
                     } label: {
                         HStack {
-                            Text("필터")
+                            Label("필터", systemImage: "slider.horizontal.3")
+                                .foregroundStyle(Theme.textPrimary)
                             Spacer()
                             Text(filters.isEmpty ? "제한 없음" : "설정됨")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(filters.isEmpty ? Theme.textSecondary : Theme.accent)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(Theme.textSecondary)
                         }
                     }
                 }
+                .listRowBackground(Theme.surface)
 
                 Section {
                     Button {
@@ -56,16 +63,32 @@ struct SearchView: View {
                         HStack {
                             Spacer()
                             if isStarting || model.logger.isRunning {
-                                ProgressView()
+                                ProgressView().tint(Theme.background)
                             } else {
-                                Text("수집 시작").bold()
+                                Text("수집 시작").font(.headline)
                             }
                             Spacer()
                         }
+                        .foregroundStyle(Theme.background)
+                        .padding(.vertical, 4)
                     }
                     .disabled(isStarting || model.logger.isRunning || !canStart)
+                    .listRowBackground(
+                        (isStarting || model.logger.isRunning || !canStart)
+                            ? Theme.accent.opacity(0.4) : Theme.accent
+                    )
+                }
+
+                if !relay.isConnected {
+                    Section {
+                        Label("중계 연결 안 됨 — 설정 탭에서 확인해 주세요", systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.error)
+                    }
+                    .listRowBackground(Theme.surface)
                 }
             }
+            .themedListBackground()
             .navigationTitle("매물 수집기")
             .sheet(isPresented: $showFilters) {
                 FilterSheet(filters: $filters)
@@ -83,44 +106,62 @@ struct SearchView: View {
 
     private var regionSection: some View {
         Group {
-            Section("서울 구 선택") {
+            Section {
                 FlowChips(RegionData.seoulRegions) { gu in
                     ChipButton(gu, isSelected: selectedGu.contains(gu)) {
                         toggleGu(gu)
                     }
                 }
                 .padding(.vertical, 4)
+            } header: {
+                Text("서울 구 선택").foregroundStyle(Theme.textSecondary)
             }
+            .listRowBackground(Theme.surface)
 
             if !dongOptions.isEmpty {
-                Section("동 선택 (선택 시 동 단위로 검색)") {
+                Section {
                     FlowChips(dongOptions) { dong in
-                        ChipButton(dong, isSelected: selectedDong.contains(dong), color: .blue) {
+                        ChipButton(dong, isSelected: selectedDong.contains(dong), color: Theme.info) {
                             if selectedDong.contains(dong) { selectedDong.remove(dong) }
                             else { selectedDong.insert(dong) }
                         }
                     }
                     .padding(.vertical, 4)
+                } header: {
+                    Text("동 선택 (선택 시 동 단위로 검색)").foregroundStyle(Theme.textSecondary)
                 }
+                .listRowBackground(Theme.surface)
             }
 
-            Section("또는 직접 입력") {
+            Section {
                 TextField("예: 용두동, 강남구", text: $manualRegion)
+                    .tint(Theme.accent)
+                    .foregroundStyle(Theme.textPrimary)
+            } header: {
+                Text("또는 직접 입력").foregroundStyle(Theme.textSecondary)
             }
+            .listRowBackground(Theme.surface)
         }
     }
 
     private var urlSection: some View {
-        Section("네이버 부동산 매물 URL (줄바꿈으로 구분)") {
+        Section {
             TextEditor(text: $urlText)
                 .frame(minHeight: 140)
                 .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(Theme.textPrimary)
+                .scrollContentBackground(.hidden)
+                .tint(Theme.accent)
             Button("클립보드 붙여넣기") {
                 if let s = UIPasteboard.general.string {
                     urlText = urlText.isEmpty ? s : urlText + "\n" + s
                 }
             }
+            .foregroundStyle(Theme.accent)
+        } header: {
+            Text("네이버 부동산 매물 URL (줄바꿈으로 구분)").foregroundStyle(Theme.textSecondary)
         }
+        .listRowBackground(Theme.surface)
     }
 
     private func toggleGu(_ gu: String) {
