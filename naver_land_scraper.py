@@ -720,8 +720,13 @@ def search_region_articles(
     log=print,
     max_count: int = 500,
     proxy: dict | None = None,
+    on_article=None,
 ) -> list[dict]:
     """지역명으로 전세안고 매매 매물 목록 수집 후 상세 필드까지 반환.
+
+    on_article: 매물 하나가 성공적으로 추출될 때마다 즉시 호출되는 콜백(선택).
+        서버 프로세스가 중간에 죽어도(OOM 등) 이미 처리된 매물은 잃지 않도록,
+        호출부에서 매물 단위로 즉시 저장하는 데 사용한다.
 
     Returns:
         extract_fields() 형식의 dict 리스트 (append_row()에 바로 사용 가능)
@@ -961,6 +966,11 @@ def search_region_articles(
 
 
                     all_fields.append(fields)
+                    if on_article:
+                        try:
+                            on_article(fields)
+                        except Exception as e:
+                            log(f"  ⚠ 즉시저장 콜백 오류(수집은 계속): {e}")
                     log(
                         f"  ({i+1}/{len(article_list)}) "
                         f"{cname} — {fields.get('price_main', '')}"
@@ -983,8 +993,14 @@ def search_region_articles(
 
 # ─── URL 목록 수집 (search_region_articles와 동일한 방식) ────────────────────
 
-def collect_articles_by_url_list(url_list: list[str], log=print, proxy: dict | None = None) -> list[dict]:
-    """URL 목록으로 매물 상세 수집.  search_region_articles와 동일한 브라우저/JWT 방식 사용."""
+def collect_articles_by_url_list(
+    url_list: list[str], log=print, proxy: dict | None = None, on_article=None
+) -> list[dict]:
+    """URL 목록으로 매물 상세 수집.  search_region_articles와 동일한 브라우저/JWT 방식 사용.
+
+    on_article: 매물 하나가 성공적으로 추출될 때마다 즉시 호출되는 콜백(선택).
+        중간에 프로세스가 죽어도 이미 처리된 매물은 잃지 않도록 즉시 저장하는 데 사용.
+    """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -1127,6 +1143,11 @@ def collect_articles_by_url_list(url_list: list[str], log=print, proxy: dict | N
 
 
                 all_fields.append(fields)
+                if on_article:
+                    try:
+                        on_article(fields)
+                    except Exception as e:
+                        log(f"  ⚠ 즉시저장 콜백 오류(수집은 계속): {e}")
                 log(f"  ({i+1}/{len(parsed)}) {cname} — {fields.get('price_main', '')}")
 
             except Exception as e:

@@ -307,36 +307,48 @@ async def scrape_region(req: RegionRequest):
         for i, region in enumerate(req.regions, 1):
             log = _make_log_fn(q, loop)
             log(f"\n── [{i}/{len(req.regions)}] {region} ──", "accent")
-            try:
-                articles = search_region_articles(region, log=log, max_count=req.max_count, proxy=proxy)
-            except RuntimeError as e:
-                log(f"  ✗ 실패: {e}", "error"); continue
-            except Exception as e:
-                log(f"  ✗ 오류: {e}", "error"); continue
 
             try:
                 wb, ws = load_or_create_workbook(excel_path)
             except Exception as e:
                 log(f"  ✗ Excel 오류: {e}", "error"); continue
 
-            ok = skip = filtered = 0
-            for fields in articles:
+            # 매물 하나씩 즉시 저장 — 중간에 연결이 끊기거나 프로세스가 죽어도
+            # (예: 서버 리소스 부족으로 재시작) 이미 처리된 매물은 유실되지 않도록 함.
+            # 매번 디스크에 쓰면 느려지므로 5건마다, 그리고 지역 처리가 끝날 때 저장.
+            counts = {"ok": 0, "skip": 0, "filtered": 0, "unsaved": 0}
+
+            def _on_article(fields, ws=ws, wb=wb, counts=counts, log=log):
                 article_no = str(fields.get("article_no", ""))
-                if not article_no: continue
+                if not article_no:
+                    return
                 if is_duplicate(ws, article_no, fields.get("complex_name", ""), fields.get("floor", "")):
-                    skip += 1; continue
+                    counts["skip"] += 1; return
                 if not _passes_filter(fields, req.filters):
-                    filtered += 1; continue
+                    counts["filtered"] += 1; return
                 append_row(ws, fields, ws.max_row + 1)
-                ok += 1
+                counts["ok"] += 1
+                counts["unsaved"] += 1
+                if counts["unsaved"] >= 5:
+                    wb.save(excel_path)
+                    counts["unsaved"] = 0
+
+            try:
+                search_region_articles(
+                    region, log=log, max_count=req.max_count, proxy=proxy, on_article=_on_article,
+                )
+            except RuntimeError as e:
+                log(f"  ✗ 실패: {e} (여기까지 수집된 {counts['ok']}건은 저장됨)", "error")
+            except Exception as e:
+                log(f"  ✗ 오류: {e} (여기까지 수집된 {counts['ok']}건은 저장됨)", "error")
 
             try:
                 wb.save(excel_path)
             except Exception as e:
                 log(f"  ✗ 저장 오류: {e}", "error"); continue
 
-            log(f"  저장 {ok}건 / 중복 {skip}건 / 필터 {filtered}건", "info")
-            total_ok += ok; total_skip += skip; total_filtered += filtered
+            log(f"  저장 {counts['ok']}건 / 중복 {counts['skip']}건 / 필터 {counts['filtered']}건", "info")
+            total_ok += counts["ok"]; total_skip += counts["skip"]; total_filtered += counts["filtered"]
 
         loop.call_soon_threadsafe(q.put_nowait, {
             "type": "done", "ok": total_ok, "skip": total_skip, "filtered": total_filtered,
@@ -392,27 +404,35 @@ async def scrape_urls(req: UrlRequest):
             loop.call_soon_threadsafe(q.put_nowait, {"type": "done", "ok": 0, "skip": skip, "filtered": 0, "rows": _count_rows(excel_path)})
             return
 
-        try:
-            articles = collect_articles_by_url_list(urls_to_fetch, log=log, proxy=proxy)
-        except Exception as e:
-            log(f"✗ 수집 오류: {e}", "error")
-            loop.call_soon_threadsafe(q.put_nowait, {"type": "done", "ok": 0, "skip": skip, "filtered": 0, "rows": _count_rows(excel_path)})
-            return
+        # 매물 하나씩 즉시 저장 — 중간에 연결이 끊기거나 프로세스가 죽어도 이미
+        # 처리된 매물은 유실되지 않도록 함 (5건마다 + 끝에 저장).
+        counts = {"ok": 0, "filtered": 0, "unsaved": 0}
 
-        ok = filtered = 0
-        for fields in articles:
+        def _on_article(fields):
+            nonlocal skip
             article_no = str(fields.get("article_no", ""))
             if is_duplicate(ws, article_no, fields.get("complex_name", ""), fields.get("floor", "")):
-                skip += 1; continue
+                skip += 1; return
             if not _passes_filter(fields, req.filters):
-                filtered += 1; continue
+                counts["filtered"] += 1; return
             append_row(ws, fields, ws.max_row + 1)
-            ok += 1
+            counts["ok"] += 1
+            counts["unsaved"] += 1
+            if counts["unsaved"] >= 5:
+                wb.save(excel_path)
+                counts["unsaved"] = 0
+
+        try:
+            collect_articles_by_url_list(urls_to_fetch, log=log, proxy=proxy, on_article=_on_article)
+        except Exception as e:
+            log(f"✗ 수집 오류: {e} (여기까지 수집된 {counts['ok']}건은 저장됨)", "error")
 
         try:
             wb.save(excel_path)
         except Exception as e:
             log(f"✗ 저장 오류: {e}", "error")
+
+        ok, filtered = counts["ok"], counts["filtered"]
 
         log(f"  저장 {ok}건 / 중복 {skip}건 / 필터 {filtered}건", "info")
         loop.call_soon_threadsafe(q.put_nowait, {
