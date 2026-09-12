@@ -62,6 +62,7 @@ git clone <이 저장소의_git_주소> app
 cd app
 docker build -t naverland-backend:latest .
 sudo mkdir -p /opt/naverland/data
+sudo touch /opt/naverland/.env   # 환경변수 파일 (비어 있어도 됨, 아래 6.5 참고)
 ```
 
 > git 저장소 주소가 없다면(로컬 전용 프로젝트라면) Mac에서 아래처럼 압축해서 올려도 됩니다:
@@ -74,6 +75,27 @@ sudo mkdir -p /opt/naverland/data
 > mkdir app && tar xzf app.tar.gz -C app && cd app
 > docker build -t naverland-backend:latest .
 > ```
+
+## 6.5 (선택) 카카오 API 키로 지역 좌표 조회 안정화
+
+지역명 → 좌표 변환에 기본으로 Nominatim(무료 공개 서버)을 쓰는데, 서버/클라우드 IP는
+Nominatim 정책상 종종 장기간 차단됩니다. 카카오 로컬 API를 등록해두면 이 문제를 피할 수
+있습니다 (무료, 하루 30만 건).
+
+1. https://developers.kakao.com 접속 → 카카오계정으로 로그인
+2. 우측 상단 **내 애플리케이션** → **애플리케이션 추가하기** (앱 이름은 아무거나, 예: `naverland`)
+3. 생성된 앱 클릭 → 좌측 메뉴 **앱 키** → **REST API 키** 복사 (긴 영숫자 문자열)
+4. VM에서 방금 복사한 키를 `.env` 파일에 저장:
+   ```bash
+   echo "KAKAO_REST_API_KEY=여기에_복사한_REST_API_키" | sudo tee /opt/naverland/.env
+   ```
+5. 백엔드 재시작 (이미 떠 있다면):
+   ```bash
+   sudo systemctl restart naverland-backend
+   ```
+
+이후 좌표 조회 시 Nominatim보다 카카오가 먼저 시도됩니다. 안 하셔도 목동/신월동/신정동 등
+자주 쓰는 지역은 코드에 내장된 시드 캐시로 이미 정상 동작합니다.
 
 ## 7. 서비스로 등록해서 24시간 자동 실행
 

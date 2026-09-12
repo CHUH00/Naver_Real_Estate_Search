@@ -11,6 +11,7 @@ ExecStartPre=-/usr/bin/docker rm naverland-backend
 ExecStart=/usr/bin/docker run --name naverland-backend \
   -p 127.0.0.1:8080:8080 \
   -v /opt/naverland/data:/data \
+  --env-file /opt/naverland/.env \
   naverland-backend:latest
 ExecStop=/usr/bin/docker stop naverland-backend
 
