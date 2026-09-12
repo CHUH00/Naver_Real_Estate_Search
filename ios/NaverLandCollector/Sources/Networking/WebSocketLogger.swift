@@ -10,7 +10,6 @@ final class WebSocketLogger: ObservableObject {
     private var task: URLSessionWebSocketTask?
     private var currentJobID: String?
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 6
 
     func start(jobID: String) {
         currentJobID = jobID
@@ -54,16 +53,17 @@ final class WebSocketLogger: ObservableObject {
     private func handleDisconnect(error: Error) {
         guard isRunning, let jobID = currentJobID else { return }
         reconnectAttempts += 1
-        if reconnectAttempts <= maxReconnectAttempts {
-            append("연결이 잠시 끊겼습니다. 재연결 시도 중… (\(reconnectAttempts)/\(maxReconnectAttempts))", tag: "dim")
-            Task {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard self.isRunning, self.currentJobID == jobID else { return }
-                self.connect(jobID: jobID)
-            }
-        } else {
-            append("연결 끊김: \(error.localizedDescription)", tag: "error")
-            finish()
+        // 서버는 작업이 끝나기(done) 전까지 로그 큐를 보존하고, 아이폰↔서버 SOCKS 릴레이도
+        // 끊김 시 계속 재시도하도록 되어 있음 — 로그 화면도 수집이 실제로 끝날 때까지는
+        // 짧은 네트워크 끊김(와이파이/셀룰러 전환, 지하철/엘리베이터 등)에 포기하지 않고
+        // 계속 재연결을 시도한다. (예전엔 6회/12초만 시도하고 포기해서, 실제로는 서버에서
+        // 계속 진행 중인 작업을 화면에서 실패로 잘못 표시하는 문제가 있었음)
+        let delay = min(2.0 * Double(min(reconnectAttempts, 5)), 15.0)
+        append("연결이 잠시 끊겼습니다. 재연결 시도 중… (\(reconnectAttempts)번째)", tag: "dim")
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard self.isRunning, self.currentJobID == jobID else { return }
+            self.connect(jobID: jobID)
         }
     }
 
