@@ -4,6 +4,7 @@
 import asyncio
 import io
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -176,18 +177,49 @@ class UrlRequest(BaseModel):
 
 # ── Filter logic ──────────────────────────────────────────────────────────────
 
+def _parse_price(s) -> float:
+    """'13억5,000' / '13억 5,000' / '80,000' → 만원 단위 float. 파싱 불가 시 0."""
+    s = str(s or "").replace(",", "").replace(" ", "")
+    m = re.match(r"(\d+(?:\.\d+)?)억(\d*)", s)
+    if m:
+        return float(m.group(1)) * 10000 + (int(m.group(2)) if m.group(2) else 0)
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def _parse_area(s) -> float | None:
+    """'24.3평' → 24.3. 파싱 불가 시 None."""
+    s = str(s or "").replace("평", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _floor_type(floor_s: str) -> str | None:
+    """'5/15' → 저층/중층/고층. 이미 텍스트로 되어 있으면 그대로 반환."""
+    m = re.match(r"(\d+)/(\d+)", floor_s or "")
+    if m:
+        cur, total = int(m.group(1)), int(m.group(2))
+        if total <= 0:
+            return None
+        ratio = cur / total
+        if ratio <= 0.33:
+            return "저층"
+        if ratio <= 0.66:
+            return "중층"
+        return "고층"
+    for label in ("저층", "중층", "고층"):
+        if label in (floor_s or ""):
+            return label
+    return None
+
+
 def _passes_filter(fields: dict, filters: dict) -> bool:
     if not filters:
         return True
-
-    def _num(val):
-        try:
-            return float(str(val).replace(",", "").replace("만", "").strip())
-        except Exception:
-            return None
-
-    price = _num(fields.get("price_main"))
-    area  = _num(fields.get("area_exclusive"))
 
     price_min = filters.get("price_min")
     price_max = filters.get("price_max")
@@ -197,28 +229,32 @@ def _passes_filter(fields: dict, filters: dict) -> bool:
     floors    = filters.get("floors", [])
     household_min = filters.get("household_min")
 
-    if price is not None:
-        if price_min and price < float(price_min): return False
-        if price_max and price > float(price_max): return False
+    if price_min or price_max:
+        price = _parse_price(fields.get("price_main"))
+        if price > 0:
+            if price_min and price < float(price_min): return False
+            if price_max and price > float(price_max): return False
 
-    if area is not None:
-        if area_min and area < float(area_min): return False
-        if area_max and area > float(area_max): return False
+    if area_min or area_max:
+        area = _parse_area(fields.get("area_exclusive"))
+        if area is not None:
+            if area_min and area < float(area_min): return False
+            if area_max and area > float(area_max): return False
 
     if directions:
         d = fields.get("direction", "")
-        if not any(x in d for x in directions):
+        if d and d not in directions:
             return False
 
     if floors:
-        f = fields.get("floor", "")
-        if not any(fl in f for fl in floors):
+        ftype = _floor_type(fields.get("floor", ""))
+        if ftype and ftype not in floors:
             return False
 
     if household_min:
-        # household_by_type format: "300세대/25세대" or "300세대"
+        # household_by_type 형식: "300세대/25세대" 또는 "300세대"
         household_str = str(fields.get("household_by_type", ""))
-        total_str = household_str.split("세대")[0]
+        total_str = household_str.split("세대")[0].replace(",", "")
         try:
             if int(total_str) < int(household_min):
                 return False
