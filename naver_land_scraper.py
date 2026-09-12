@@ -595,20 +595,71 @@ _UA = (
 )
 
 
-def _geocode(region_name: str) -> tuple[float, float]:
-    """Nominatim으로 지역명 → (lat, lon) 변환 (API 키 불필요)."""
-    import urllib.request, urllib.parse
+_geocode_cache: dict[str, tuple[float, float]] = {}
+_last_nominatim_call: list[float] = [0.0]
+_NOMINATIM_MIN_INTERVAL = 1.1  # Nominatim 사용 정책: 초당 1건 이하
+
+
+def _geocode(region_name: str, retries: int = 3, log=print) -> tuple[float, float]:
+    """Nominatim으로 지역명 → (lat, lon) 변환 (API 키 불필요).
+
+    - 같은 프로세스 내 동일 지역명은 캐시 재사용 (중복 호출 방지)
+    - Nominatim 사용 정책(최대 초당 1건)을 지키기 위해 호출 간 최소 간격 보장
+    - 429/일시적 오류에 대해 지수 백오프로 재시도
+    """
+    if region_name in _geocode_cache:
+        return _geocode_cache[region_name]
+
+    import urllib.request, urllib.parse, urllib.error
+
     encoded = urllib.parse.quote(region_name)
     url = (
         f"https://nominatim.openstreetmap.org/search"
         f"?q={encoded}&format=json&limit=3&accept-language=ko&countrycodes=kr"
     )
-    req = urllib.request.Request(url, headers={"User-Agent": "NaverLandScraper/1.0"})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        data = json.loads(r.read())
-    if not data:
-        raise RuntimeError(f"'{region_name}' 지역 좌표를 찾을 수 없습니다.")
-    return float(data[0]["lat"]), float(data[0]["lon"])
+    # Nominatim 사용 정책상 식별 가능한 User-Agent(연락처/프로젝트 정보 포함) 필요
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "NaverLandScraper/1.0 "
+                "(+https://github.com/CHUH00/Naver_Real_Estate_Search)"
+            )
+        },
+    )
+
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        # 직전 Nominatim 호출로부터 최소 간격 보장
+        elapsed = time.time() - _last_nominatim_call[0]
+        if elapsed < _NOMINATIM_MIN_INTERVAL:
+            time.sleep(_NOMINATIM_MIN_INTERVAL - elapsed)
+
+        try:
+            _last_nominatim_call[0] = time.time()
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read())
+            if not data:
+                raise RuntimeError(f"'{region_name}' 지역 좌표를 찾을 수 없습니다.")
+            result = (float(data[0]["lat"]), float(data[0]["lon"]))
+            _geocode_cache[region_name] = result
+            return result
+
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code == 429:
+                wait = 3 * (attempt + 1)
+                log(f"  좌표 조회 요청 제한(429) — {wait}초 후 재시도 ({attempt + 1}/{retries})")
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"좌표 조회 HTTP 오류 {e.code}") from e
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = e
+            wait = 2 * (attempt + 1)
+            log(f"  좌표 조회 네트워크 오류 — {wait}초 후 재시도 ({attempt + 1}/{retries})")
+            time.sleep(wait)
+
+    raise RuntimeError(f"'{region_name}' 지역 좌표 조회 실패 (재시도 {retries}회 초과): {last_err}")
 
 
 def search_region_articles(
@@ -631,7 +682,7 @@ def search_region_articles(
 
     # ── 1. 지역 좌표 조회 (Nominatim) ───────────────────────────────────────
     try:
-        lat, lon = _geocode(region_name)
+        lat, lon = _geocode(region_name, log=log)
         log(f"  좌표: {lat:.4f}, {lon:.4f}")
     except Exception as e:
         raise RuntimeError(f"지역 좌표 조회 실패: {e}")
