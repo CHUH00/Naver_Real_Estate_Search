@@ -126,11 +126,18 @@ async def upload_excel(
 
 @app.websocket("/ws/{job_id}")
 async def ws_logs(websocket: WebSocket, job_id: str):
+    """수집 진행 로그 스트림.
+
+    아이폰 쪽 네트워크가 잠깐 끊겼다가 같은 job_id로 재연결하는 경우를 위해,
+    작업이 실제로 끝나기(done) 전에는 큐를 지우지 않는다 — 재연결하면
+    이어서 로그를 받을 수 있다.
+    """
     await websocket.accept()
     q = _jobs.get(job_id)
     if q is None:
         await websocket.close(code=4004)
         return
+    finished = False
     try:
         while True:
             try:
@@ -141,13 +148,19 @@ async def ws_logs(websocket: WebSocket, job_id: str):
                 except Exception:
                     break
                 continue
-            await websocket.send_json(msg)
+            try:
+                await websocket.send_json(msg)
+            except Exception:
+                await q.put(msg)  # 전송 실패 — 재연결 시 다시 받을 수 있도록 되돌려 놓음
+                break
             if msg.get("type") == "done":
+                finished = True
                 break
     except WebSocketDisconnect:
         pass
     finally:
-        _jobs.pop(job_id, None)
+        if finished:
+            _jobs.pop(job_id, None)
 
 
 @app.websocket("/ws/relay/{session_id}")

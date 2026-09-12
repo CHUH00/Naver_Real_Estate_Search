@@ -6,81 +6,89 @@ struct FilterSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        TextField("최소", text: $filters.priceMin).keyboardType(.decimalPad)
-                        Text("~").foregroundStyle(Theme.textSecondary)
-                        TextField("최대", text: $filters.priceMax).keyboardType(.decimalPad)
+            ScrollView {
+                VStack(spacing: 16) {
+                    Card {
+                        SectionHeader("wonsign.circle", "매매가", subtitle: "억 원 단위")
+                            .padding(.bottom, 12)
+                        rangeRow(min: $filters.priceMin, max: $filters.priceMax, unit: "억")
                     }
-                    .tint(Theme.accent)
-                } header: {
-                    Text("매매가 (억 원)").foregroundStyle(Theme.textSecondary)
-                }
-                .listRowBackground(Theme.surface)
 
-                Section {
-                    HStack {
-                        TextField("최소", text: $filters.areaMin).keyboardType(.decimalPad)
-                        Text("~").foregroundStyle(Theme.textSecondary)
-                        TextField("최대", text: $filters.areaMax).keyboardType(.decimalPad)
+                    Card {
+                        SectionHeader("square.dashed", "전용면적", subtitle: "평 단위")
+                            .padding(.bottom, 12)
+                        rangeRow(min: $filters.areaMin, max: $filters.areaMax, unit: "평")
                     }
-                    .tint(Theme.accent)
-                } header: {
-                    Text("전용면적 (평)").foregroundStyle(Theme.textSecondary)
-                }
-                .listRowBackground(Theme.surface)
 
-                Section {
-                    FlowChips(ScrapeFilters.directionOptions) { d in
-                        ChipButton(d, isSelected: filters.directions.contains(d), color: Theme.info) {
-                            if filters.directions.contains(d) { filters.directions.remove(d) }
-                            else { filters.directions.insert(d) }
+                    Card {
+                        SectionHeader("location.north.circle", "방향")
+                            .padding(.bottom, 12)
+                        FlowChips(ScrapeFilters.directionOptions) { d in
+                            ChipButton(d, isSelected: filters.directions.contains(d), color: Theme.info) {
+                                if filters.directions.contains(d) { filters.directions.remove(d) }
+                                else { filters.directions.insert(d) }
+                            }
                         }
                     }
-                } header: {
-                    Text("방향").foregroundStyle(Theme.textSecondary)
-                }
-                .listRowBackground(Theme.surface)
 
-                Section {
-                    FlowChips(ScrapeFilters.floorOptions) { f in
-                        ChipButton(f, isSelected: filters.floors.contains(f), color: Theme.success) {
-                            if filters.floors.contains(f) { filters.floors.remove(f) }
-                            else { filters.floors.insert(f) }
+                    Card {
+                        SectionHeader("building.2.crop.circle", "해당층")
+                            .padding(.bottom, 12)
+                        FlowChips(ScrapeFilters.floorOptions) { f in
+                            ChipButton(f, isSelected: filters.floors.contains(f), color: Theme.success) {
+                                if filters.floors.contains(f) { filters.floors.remove(f) }
+                                else { filters.floors.insert(f) }
+                            }
                         }
                     }
-                } header: {
-                    Text("해당층").foregroundStyle(Theme.textSecondary)
-                }
-                .listRowBackground(Theme.surface)
 
-                Section {
-                    TextField("최소 세대수", text: $filters.householdMin)
-                        .keyboardType(.numberPad)
-                        .tint(Theme.accent)
-                } header: {
-                    Text("단지 세대수").foregroundStyle(Theme.textSecondary)
-                }
-                .listRowBackground(Theme.surface)
+                    Card {
+                        SectionHeader("person.3", "단지 세대수", subtitle: "최소 세대수")
+                            .padding(.bottom, 12)
+                        TextField("예: 300", text: $filters.householdMin)
+                            .textFieldStyle(BoxedTextFieldStyle())
+                            .keyboardType(.numberPad)
+                    }
 
-                Section {
-                    Button("필터 초기화", role: .destructive) {
-                        filters = ScrapeFilters()
+                    Button(role: .destructive) {
+                        withAnimation { filters = ScrapeFilters() }
+                    } label: {
+                        Label("필터 초기화", systemImage: "arrow.counterclockwise")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
                     }
                     .foregroundStyle(Theme.error)
+                    .background(Theme.error.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
                 }
-                .listRowBackground(Theme.surface)
+                .padding(16)
             }
-            .themedListBackground()
+            .background(Theme.background)
             .navigationTitle("필터")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("완료") { dismiss() }
                         .foregroundStyle(Theme.accent)
+                        .fontWeight(.semibold)
                 }
             }
+        }
+    }
+
+    private func rangeRow(min: Binding<String>, max: Binding<String>, unit: String) -> some View {
+        HStack(spacing: 10) {
+            TextField("최소", text: min)
+                .textFieldStyle(BoxedTextFieldStyle())
+                .keyboardType(.decimalPad)
+            Text("~").foregroundStyle(Theme.textFaint)
+            TextField("최대", text: max)
+                .textFieldStyle(BoxedTextFieldStyle())
+                .keyboardType(.decimalPad)
+            Text(unit)
+                .font(.caption)
+                .foregroundStyle(Theme.textFaint)
         }
     }
 }

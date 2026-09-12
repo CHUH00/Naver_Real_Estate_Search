@@ -10,11 +10,30 @@ final class AppModel: ObservableObject {
 
     let logger = WebSocketLogger()
 
+    init() {
+        // 서버 응답을 기다리지 않고, 기기에 저장된 마지막 매물 목록을 바로 보여준다.
+        let cached = ListingsCache.load()
+        if !cached.listings.isEmpty {
+            listings = cached.listings
+            rowCount = cached.listings.count
+        }
+    }
+
+    private var sessionKey: String { "session_id::" + APIClient.shared.baseURLString }
+
     func ensureSession() async {
         guard sessionID == nil else { return }
+
+        if let saved = UserDefaults.standard.string(forKey: sessionKey), !saved.isEmpty {
+            sessionID = saved
+            RelayClient.shared.start(sessionID: saved)
+            return
+        }
+
         do {
             let sid = try await APIClient.shared.newSession()
             sessionID = sid
+            UserDefaults.standard.set(sid, forKey: sessionKey)
             RelayClient.shared.start(sessionID: sid)
         } catch APIError.badURL {
             // 서버 주소를 아직 설정하지 않은 상태 — 설정 탭에서 입력할 때까지 조용히 기다린다.
@@ -23,13 +42,12 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// 설정 탭에서 서버 주소를 바꿨을 때 호출 — 기존 릴레이 연결을 끊고 새 세션으로 다시 연결.
+    /// 설정 탭에서 서버 주소를 바꿨을 때 호출 — 기존 릴레이 연결을 끊고 새(또는 저장된) 세션으로 다시 연결.
     func restartSession() async {
         RelayClient.shared.stop()
         sessionID = nil
-        listings = []
-        rowCount = 0
         await ensureSession()
+        await refreshListings()
     }
 
     func runRegionScrape(regions: [String], filters: ScrapeFilters) async {
@@ -66,28 +84,42 @@ final class AppModel: ObservableObject {
         await refreshListings()
     }
 
+    /// 서버 목록을 새로고침한다. 서버가 (재시작 등으로) 빈 목록을 돌려주더라도
+    /// 이미 화면/기기에 있는 목록은 사용자가 직접 지우기 전까지 그대로 유지한다.
     func refreshListings() async {
         guard let sid = sessionID else { return }
         isLoadingListings = true
         defer { isLoadingListings = false }
         do {
             let preview = try await APIClient.shared.excelPreview(sid)
+            if preview.rows.isEmpty && !listings.isEmpty {
+                // 서버 쪽 데이터가 사라진 것으로 보임 (Render 재시작 등) — 기기 캐시를 그대로 유지.
+                return
+            }
             listings = preview.rows.enumerated().map { Listing(id: $0.offset, headers: preview.headers, row: $0.element) }
             rowCount = preview.total
+            ListingsCache.save(headers: preview.headers, rows: preview.rows)
+        } catch {
+            errorMessage = error.localizedDescription
+            // 네트워크 오류 시에도 기존(캐시) 목록은 그대로 둔다.
+        }
+    }
+
+    /// 매물 탭의 "지우기" — 서버와 기기 캐시 양쪽에서 모두 삭제.
+    func clearAllListings() async {
+        listings = []
+        rowCount = 0
+        ListingsCache.clear()
+        guard let sid = sessionID else { return }
+        do {
+            try await APIClient.shared.resetSession(sid)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     func resetSession() async {
-        guard let sid = sessionID else { return }
-        do {
-            try await APIClient.shared.resetSession(sid)
-            listings = []
-            rowCount = 0
-            logger.clear()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await clearAllListings()
+        logger.clear()
     }
 }

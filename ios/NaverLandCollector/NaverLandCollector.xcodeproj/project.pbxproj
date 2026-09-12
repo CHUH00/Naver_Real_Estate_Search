@@ -22,6 +22,7 @@
 		B3DE5EE84930D9677C7EC1F9 /* RegionData.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA4AAEE8235A46B7995F5D99 /* RegionData.swift */; };
 		B4F1CC6D4C84873EA93481E1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D756B2C811358EA12E85ED2 /* SettingsView.swift */; };
 		BE132996C7C5B069ABCEB0B5 /* FilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2BD606B38083EF8B4DE87E /* FilterSheet.swift */; };
+		C4D9FAD54D6473BB2D59E994 /* ListingsCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCBA2CFCAEE77BAA6ACA5E90 /* ListingsCache.swift */; };
 		DA7BA0B015ACA7DB57BA2CB1 /* ListingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E68C7750676C78B174BA2607 /* ListingsView.swift */; };
 		DC019001E73AD572F7E39BA6 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63453B3EF75D1E0B5B5CF0F8 /* SearchView.swift */; };
 /* End PBXBuildFile section */
@@ -34,11 +35,12 @@
 		6B4ED3EF99AC22CB43BF75B1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6FEB5213402A77DBA48B2248 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		81E1FE72ECE7A1769C90B935 /* WebSocketLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketLogger.swift; sourceTree = "<group>"; };
-		948B9637AE0C3E1BFBC30193 /* NaverLandCollector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NaverLandCollector.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		948B9637AE0C3E1BFBC30193 /* NaverLandCollector.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NaverLandCollector.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9ED7E2E954455032B1E81F81 /* Listing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Listing.swift; sourceTree = "<group>"; };
 		A74B10D312015C2E1DBB98BE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C252312DDC1C8257B72D84E6 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		C587948F64486D79F6954A71 /* Filters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Filters.swift; sourceTree = "<group>"; };
+		CCBA2CFCAEE77BAA6ACA5E90 /* ListingsCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListingsCache.swift; sourceTree = "<group>"; };
 		D2596A01B333568FE998CA84 /* ChipButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChipButton.swift; sourceTree = "<group>"; };
 		DA4AAEE8235A46B7995F5D99 /* RegionData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionData.swift; sourceTree = "<group>"; };
 		DB5E4D54189ADABE4F1EF155 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
@@ -71,6 +73,7 @@
 				F538BB8FF3097F852D01B8ED /* AppModel.swift */,
 				C587948F64486D79F6954A71 /* Filters.swift */,
 				9ED7E2E954455032B1E81F81 /* Listing.swift */,
+				CCBA2CFCAEE77BAA6ACA5E90 /* ListingsCache.swift */,
 				DA4AAEE8235A46B7995F5D99 /* RegionData.swift */,
 			);
 			path = Models;
@@ -153,6 +156,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					2D5F687AC725CCA70C3A7AB4 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -199,6 +203,7 @@
 				BE132996C7C5B069ABCEB0B5 /* FilterSheet.swift in Sources */,
 				7685DA77EB375297FAD0D889 /* Filters.swift in Sources */,
 				3794CE5BAA156F013DD90C13 /* Listing.swift in Sources */,
+				C4D9FAD54D6473BB2D59E994 /* ListingsCache.swift in Sources */,
 				DA7BA0B015ACA7DB57BA2CB1 /* ListingsView.swift in Sources */,
 				14D394F0087AAFC42FAC501C /* LogView.swift in Sources */,
 				58A1DE7D12E44EFB0DE7D5F9 /* NaverLandApp.swift in Sources */,
@@ -341,7 +346,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = PD5X562S29;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = Sources/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

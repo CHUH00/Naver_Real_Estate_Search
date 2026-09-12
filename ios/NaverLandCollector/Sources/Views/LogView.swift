@@ -5,28 +5,37 @@ struct LogView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 3) {
-                        ForEach(logger.entries) { entry in
-                            Text(entry.message.isEmpty ? " " : entry.message)
-                                .font(.system(.footnote, design: .monospaced))
-                                .foregroundStyle(color(for: entry.tag))
-                                .id(entry.id)
+            VStack(spacing: 0) {
+                terminalChrome
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 3) {
+                            if logger.entries.isEmpty {
+                                Text("아직 로그가 없습니다. 검색 탭에서 수집을 시작해 보세요.")
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .foregroundStyle(Theme.textFaint)
+                            }
+                            ForEach(logger.entries) { entry in
+                                Text(entry.message.isEmpty ? " " : entry.message)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .foregroundStyle(color(for: entry.tag))
+                                    .id(entry.id)
+                            }
+                            if let summary = logger.resultSummary {
+                                Text(summary)
+                                    .font(.system(.footnote, design: .monospaced).bold())
+                                    .foregroundStyle(Theme.accentBright)
+                                    .padding(.top, 6)
+                            }
                         }
-                        if let summary = logger.resultSummary {
-                            Text(summary)
-                                .font(.footnote.bold())
-                                .foregroundStyle(Theme.textPrimary)
-                                .padding(.top, 6)
-                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .onChange(of: logger.entries.count) { _ in
-                    if let last = logger.entries.last {
-                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                    .onChange(of: logger.entries.count) { _ in
+                        if let last = logger.entries.last {
+                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        }
                     }
                 }
             }
@@ -52,6 +61,19 @@ struct LogView: View {
                 }
             }
         }
+    }
+
+    private var terminalChrome: some View {
+        HStack(spacing: 6) {
+            Circle().fill(Theme.error).frame(width: 9, height: 9)
+            Circle().fill(Theme.accent).frame(width: 9, height: 9)
+            Circle().fill(Theme.success).frame(width: 9, height: 9)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Theme.surface)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
     }
 
     private func color(for tag: String) -> Color {

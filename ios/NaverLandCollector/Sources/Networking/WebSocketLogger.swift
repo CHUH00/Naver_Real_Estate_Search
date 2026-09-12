@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 @MainActor
 final class WebSocketLogger: ObservableObject {
@@ -7,17 +8,29 @@ final class WebSocketLogger: ObservableObject {
     @Published var resultSummary: String?
 
     private var task: URLSessionWebSocketTask?
+    private var currentJobID: String?
+    private var reconnectAttempts = 0
+    private let maxReconnectAttempts = 6
 
     func start(jobID: String) {
+        currentJobID = jobID
+        reconnectAttempts = 0
+        resultSummary = nil
+        isRunning = true
+        // 수집 중 화면이 잠기면 아이폰 네트워크가 일시 중단되어 연결이 끊긴다 — 자동 잠금 방지.
+        UIApplication.shared.isIdleTimerDisabled = true
+        connect(jobID: jobID)
+    }
+
+    private func connect(jobID: String) {
         guard let url = APIClient.shared.websocketURL(jobID: jobID) else {
             append("웹소켓 주소를 만들 수 없습니다.", tag: "error")
+            finish()
             return
         }
-        isRunning = true
-        resultSummary = nil
-        let task = URLSession.shared.webSocketTask(with: url)
-        self.task = task
-        task.resume()
+        let t = URLSession.shared.webSocketTask(with: url)
+        task = t
+        t.resume()
         listen()
     }
 
@@ -27,8 +40,7 @@ final class WebSocketLogger: ObservableObject {
             Task { @MainActor in
                 switch result {
                 case .failure(let error):
-                    self.append("연결 끊김: \(error.localizedDescription)", tag: "error")
-                    self.isRunning = false
+                    self.handleDisconnect(error: error)
                 case .success(let message):
                     self.handle(message)
                     if self.isRunning {
@@ -39,12 +51,31 @@ final class WebSocketLogger: ObservableObject {
         }
     }
 
+    private func handleDisconnect(error: Error) {
+        guard isRunning, let jobID = currentJobID else { return }
+        reconnectAttempts += 1
+        if reconnectAttempts <= maxReconnectAttempts {
+            append("연결이 잠시 끊겼습니다. 재연결 시도 중… (\(reconnectAttempts)/\(maxReconnectAttempts))", tag: "dim")
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard self.isRunning, self.currentJobID == jobID else { return }
+                self.connect(jobID: jobID)
+            }
+        } else {
+            append("연결 끊김: \(error.localizedDescription)", tag: "error")
+            finish()
+        }
+    }
+
     private func handle(_ message: URLSessionWebSocketTask.Message) {
         guard case .string(let text) = message,
               let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String
         else { return }
+
+        // 정상적으로 메시지를 받았다면 재연결 카운터를 초기화.
+        reconnectAttempts = 0
 
         switch type {
         case "log":
@@ -56,8 +87,7 @@ final class WebSocketLogger: ObservableObject {
             let skip = obj["skip"] as? Int ?? 0
             let filtered = obj["filtered"] as? Int ?? 0
             resultSummary = "저장 \(ok)건 · 중복 \(skip)건 · 필터 제외 \(filtered)건"
-            isRunning = false
-            task?.cancel()
+            finish()
         case "ping":
             break
         default:
@@ -71,9 +101,15 @@ final class WebSocketLogger: ObservableObject {
         }
     }
 
-    func stop() {
-        task?.cancel()
+    private func finish() {
         isRunning = false
+        currentJobID = nil
+        task?.cancel()
+        UIApplication.shared.isIdleTimerDisabled = false
+    }
+
+    func stop() {
+        finish()
     }
 
     func clear() {
