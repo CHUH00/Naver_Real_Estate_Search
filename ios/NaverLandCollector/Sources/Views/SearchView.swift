@@ -23,9 +23,8 @@ struct SearchView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 28) {
                     header
-                    relayBanner
                     modeSwitcher
 
                     if mode == 0 { regionCards } else { urlCard }
@@ -33,8 +32,9 @@ struct SearchView: View {
                     filterCard
                     startButton
                 }
-                .padding(16)
-                .padding(.bottom, 24)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 32)
             }
             .background(Theme.background)
             .navigationBarHidden(true)
@@ -47,37 +47,36 @@ struct SearchView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("NAVER LAND")
-                .font(.caption2.weight(.bold))
-                .tracking(2)
-                .foregroundStyle(Theme.textFaint)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("매물 수집기")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Theme.textPrimary)
-                Text("전세안고 매매")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Theme.accent)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("전세안고 매매")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Theme.accent)
+                    Text("어떤 매물을\n찾아드릴까요?")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineSpacing(2)
+                }
+                Spacer()
             }
+            relayBadge
         }
-        .padding(.top, 4)
     }
 
-    private var relayBanner: some View {
-        HStack(spacing: 8) {
+    private var relayBadge: some View {
+        HStack(spacing: 6) {
             Circle()
                 .fill(relay.isConnected ? Theme.success : Theme.error)
-                .frame(width: 8, height: 8)
-            Text(relay.isConnected ? "중계 연결됨 — 수집 준비 완료" : "중계 연결 안 됨 — 설정에서 확인해 주세요")
-                .font(.caption.weight(.medium))
+                .frame(width: 7, height: 7)
+            Text(relay.isConnected ? "중계 연결됨" : "중계 연결 안 됨")
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(relay.isConnected ? Theme.success : Theme.error)
-            Spacer()
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background((relay.isConnected ? Theme.success : Theme.error).opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        .padding(.vertical, 7)
+        .background((relay.isConnected ? Theme.success : Theme.error).opacity(0.1))
+        .clipShape(Capsule())
     }
 
     // MARK: - Mode switcher
@@ -88,12 +87,8 @@ struct SearchView: View {
             modeButton("URL 직접 입력", tag: 1)
         }
         .padding(4)
-        .background(Theme.surface)
+        .background(Color(red: 0.902, green: 0.914, blue: 0.933))
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                .strokeBorder(Theme.border, lineWidth: 1)
-        )
     }
 
     private func modeButton(_ title: String, tag: Int) -> some View {
@@ -101,12 +96,13 @@ struct SearchView: View {
             withAnimation(.easeOut(duration: 0.18)) { mode = tag }
         } label: {
             Text(title)
-                .font(.subheadline.weight(mode == tag ? .semibold : .regular))
+                .font(.subheadline.weight(mode == tag ? .bold : .medium))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .foregroundStyle(mode == tag ? .white : Theme.textSecondary)
-                .background(mode == tag ? Theme.accent : Color.clear)
+                .padding(.vertical, 11)
+                .foregroundStyle(mode == tag ? Theme.textPrimary : Theme.textFaint)
+                .background(mode == tag ? Theme.surface : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                .shadow(color: mode == tag ? .black.opacity(0.06) : .clear, radius: 6, y: 2)
         }
         .buttonStyle(.plain)
     }
@@ -114,17 +110,17 @@ struct SearchView: View {
     // MARK: - Region mode
 
     private var regionCards: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Card {
                 SectionHeader("building.2", "서울 구 선택", subtitle: selectedGu.isEmpty ? nil : "\(selectedGu.count)개 선택됨") {
                     HStack(spacing: 10) {
-                        Button("전체 선택") { selectAllGu() }
+                        Button("전체") { selectAllGu() }
                         Button("해제") { deselectAll() }
                     }
-                    .font(.caption.weight(.medium))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(Theme.accent)
                 }
-                .padding(.bottom, 12)
+                .padding(.bottom, 14)
 
                 FlowChips(RegionData.seoulRegions) { gu in
                     ChipButton(gu, isSelected: selectedGu.contains(gu)) { toggleGu(gu) }
@@ -134,9 +130,9 @@ struct SearchView: View {
             if !dongOptions.isEmpty {
                 Card {
                     SectionHeader("mappin.and.ellipse", "동 선택", subtitle: "선택하면 동 단위로 검색")
-                        .padding(.bottom, 12)
+                        .padding(.bottom, 14)
                     FlowChips(dongOptions) { dong in
-                        ChipButton(dong, isSelected: selectedDong.contains(dong), color: Theme.info) {
+                        ChipButton(dong, isSelected: selectedDong.contains(dong), color: Theme.accent) {
                             if selectedDong.contains(dong) { selectedDong.remove(dong) }
                             else { selectedDong.insert(dong) }
                         }
@@ -146,7 +142,7 @@ struct SearchView: View {
 
             Card {
                 SectionHeader("keyboard", "직접 입력")
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 12)
                 TextField("예: 용두동, 강남구", text: $manualRegion)
                     .textFieldStyle(BoxedTextFieldStyle())
             }
@@ -156,20 +152,16 @@ struct SearchView: View {
     private var urlCard: some View {
         Card {
             SectionHeader("link", "네이버 부동산 매물 URL", subtitle: "여러 개는 줄바꿈으로 구분")
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
             TextEditor(text: $urlText)
                 .frame(minHeight: 130)
                 .font(.system(.footnote, design: .monospaced))
                 .foregroundStyle(Theme.textPrimary)
                 .scrollContentBackground(.hidden)
                 .tint(Theme.accent)
-                .padding(10)
+                .padding(12)
                 .background(Theme.background)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-                        .strokeBorder(Theme.border, lineWidth: 1)
-                )
 
             Button {
                 if let s = UIPasteboard.general.string {
@@ -177,10 +169,10 @@ struct SearchView: View {
                 }
             } label: {
                 Label("클립보드 붙여넣기", systemImage: "doc.on.clipboard")
-                    .font(.caption.weight(.medium))
+                    .font(.caption.weight(.bold))
             }
             .foregroundStyle(Theme.accent)
-            .padding(.top, 10)
+            .padding(.top, 12)
         }
     }
 
@@ -190,19 +182,19 @@ struct SearchView: View {
         Card {
             Button { showFilters = true } label: {
                 SectionHeader("slider.horizontal.3", "필터", subtitle: filterSummary) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         if !filters.isEmpty {
                             Button {
-                                filters = ScrapeFilters()
+                                withAnimation { filters = ScrapeFilters() }
                             } label: {
                                 Text("초기화")
-                                    .font(.caption.weight(.semibold))
+                                    .font(.caption.weight(.bold))
                                     .foregroundStyle(Theme.error)
                             }
                             .buttonStyle(.plain)
                         }
                         Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
+                            .font(.caption.weight(.bold))
                             .foregroundStyle(Theme.textFaint)
                     }
                 }
@@ -236,12 +228,11 @@ struct SearchView: View {
                     Text("수집 중…")
                 }
             } else {
-                Label("수집 시작", systemImage: "arrow.down.circle.fill")
+                Text("수집 시작")
             }
         }
         .buttonStyle(PrimaryButtonStyle(isEnabled: canStart && !isStarting && !model.logger.isRunning))
         .disabled(isStarting || model.logger.isRunning || !canStart)
-        .padding(.top, 4)
     }
 
     private var canStart: Bool {

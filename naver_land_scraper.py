@@ -886,7 +886,7 @@ def search_region_articles(
                 break
 
             page_num += 1
-            page.wait_for_timeout(200)
+            page.wait_for_timeout(80)
 
         log(f"  상세 조회 시작: {min(len(article_list), max_count)}개")
 
@@ -895,7 +895,7 @@ def search_region_articles(
         _rp_cache: dict[tuple, dict] = {}
 
         # ── 5. 각 매물 상세 조회 (여러 건을 한 번에 동시 요청) ──────────────
-        BATCH_SIZE = 6
+        BATCH_SIZE = 10  # 상세조회 동시 요청 수 — 응답이 작아(수 KB) 동시성을 늘려도 메모리 부담은 크지 않음
         RECYCLE_EVERY = 50
         items = list(enumerate(article_list[:max_count]))
         total = len(items)
@@ -1039,7 +1039,7 @@ def search_region_articles(
                 except Exception as e:
                     log(f"  ({i+1}/{total}) 매물 {article_no} 오류: {e}")
 
-            page.wait_for_timeout(150)
+            page.wait_for_timeout(60)
 
         browser.close()
 
@@ -1104,7 +1104,7 @@ def collect_articles_by_url_list(
 
         log("  인증 완료")
 
-        BATCH_SIZE = 6
+        BATCH_SIZE = 10  # 상세조회 동시 요청 수 — 응답이 작아(수 KB) 동시성을 늘려도 메모리 부담은 크지 않음
         RECYCLE_EVERY = 50
         items = list(enumerate(parsed))
         total = len(items)
@@ -1239,7 +1239,7 @@ def collect_articles_by_url_list(
                 except Exception as e:
                     log(f"  ({i+1}/{total}) 매물 {article_no} 오류: {e}")
 
-            page.wait_for_timeout(150)
+            page.wait_for_timeout(60)
 
         browser.close()
 

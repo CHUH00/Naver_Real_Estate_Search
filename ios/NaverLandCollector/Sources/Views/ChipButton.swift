@@ -16,15 +16,12 @@ struct ChipButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.footnote.weight(isSelected ? .semibold : .regular))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .font(.subheadline.weight(isSelected ? .bold : .medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
                 .background(isSelected ? color : Theme.background)
-                .foregroundStyle(isSelected ? .white : Theme.textPrimary)
+                .foregroundStyle(isSelected ? .white : Theme.textSecondary)
                 .clipShape(Capsule())
-                .overlay(
-                    Capsule().strokeBorder(isSelected ? Color.clear : Theme.border, lineWidth: 1)
-                )
         }
         .buttonStyle(.plain)
     }

@@ -20,6 +20,10 @@ targets:
           NSAllowsArbitraryLoads: false
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        UIBackgroundModes:
+          - voip
+          - processing
+          - fetch
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.genon.naverland.NaverLandCollector
