@@ -891,10 +891,14 @@ def search_region_articles(
                     page.on("request", _on_request)
                     # 새 페이지는 about:blank라 origin이 없어서 바로 fetch()하면
                     # CORS에 막혀 전부 실패한다 — 같은 도메인으로 한 번 이동시켜
-                    # origin을 맞춰준다.
+                    # origin을 맞춰줘야 함. 단, 이미지/CSS/JS까지 다 딸려오는
+                    # 무거운 페이지를 통째로 불러오면 아이폰 릴레이로 큰 트래픽이
+                    # 갑자기 튀어서 연결이 흔들릴 수 있어, 아주 가벼운 API
+                    # 응답(JSON 몇백 바이트) 하나만 불러와 origin만 맞춘다.
+                    # (인증 없이 401이 나도 상관없음 — origin만 맞으면 충분함)
                     page.goto(
-                        "https://new.land.naver.com/complexes/338?ms=37.5762,127.0348,15&a=APT&b=A1&e=RETAIL",
-                        wait_until="domcontentloaded", timeout=30000,
+                        "https://new.land.naver.com/api/cortars?zoom=15&centerLat=37.5665&centerLon=126.9780",
+                        wait_until="commit", timeout=15000,
                     )
                     old_page.close()
                     log(f"  (메모리 정리를 위해 페이지 새로고침, {i}건째)")
