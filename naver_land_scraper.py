@@ -627,13 +627,30 @@ _KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "").strip()
 
 
 def _geocode_kakao(region_name: str) -> tuple[float, float]:
+    """카카오로 지역명 → (lat, lon).
+
+    주소 검색(address.json)을 먼저 시도한다 — 행정동/법정동 이름은 이쪽이
+    훨씬 정확함(행정구역 중심 좌표를 줌). 키워드 검색(keyword.json)은 업체·
+    장소 검색용이라, "당산동" 같은 동 이름을 검색하면 그 근처 아무 업체
+    좌표가 나올 수 있고, 그 좌표가 동 경계에 가까우면 네이버 쪽 좌표->동
+    변환에서 엉뚱한 동(예: 양화동)으로 잡히는 문제가 있었음. 주소 검색에서
+    못 찾을 때만 키워드 검색으로 폴백.
+    """
     import urllib.request, urllib.parse
 
     encoded = urllib.parse.quote(region_name)
-    url = f"https://dapi.kakao.com/v2/local/search/keyword.json?query={encoded}"
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"KakaoAK {_KAKAO_REST_API_KEY}"}
-    )
+    headers = {"Authorization": f"KakaoAK {_KAKAO_REST_API_KEY}"}
+
+    addr_url = f"https://dapi.kakao.com/v2/local/search/address.json?query={encoded}"
+    req = urllib.request.Request(addr_url, headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.loads(r.read())
+    docs = data.get("documents") or []
+    if docs:
+        return float(docs[0]["y"]), float(docs[0]["x"])
+
+    kw_url = f"https://dapi.kakao.com/v2/local/search/keyword.json?query={encoded}"
+    req = urllib.request.Request(kw_url, headers=headers)
     with urllib.request.urlopen(req, timeout=10) as r:
         data = json.loads(r.read())
     docs = data.get("documents") or []
