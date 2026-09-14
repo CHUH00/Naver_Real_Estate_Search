@@ -40,12 +40,21 @@ def _alloc_stream_id() -> int:
 
 
 async def phone_relay_endpoint(websocket: WebSocket, session_id: str):
-    """아이폰 앱이 붙는 웹소켓 엔드포인트. web/main.py 에서 라우팅."""
+    """아이폰 앱이 붙는 웹소켓 엔드포인트. web/main.py 에서 라우팅.
+
+    실제 트래픽이 뜸한 순간에도 연결이 완전히 idle 상태가 되지 않도록 주기적으로
+    ping을 보낸다 — 일부 호스팅 환경의 프록시가 오래 idle인 웹소켓을 중간에
+    끊어버리는 경우가 있어, 이를 예방하기 위함.
+    """
     await websocket.accept()
     _phones[session_id] = websocket
     try:
         while True:
-            msg = await websocket.receive_json()
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "ping"})
+                continue
             await _handle_phone_message(session_id, msg)
     except WebSocketDisconnect:
         pass

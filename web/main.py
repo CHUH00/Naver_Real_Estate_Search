@@ -141,7 +141,7 @@ async def ws_logs(websocket: WebSocket, job_id: str):
     try:
         while True:
             try:
-                msg = await asyncio.wait_for(q.get(), timeout=30)
+                msg = await asyncio.wait_for(q.get(), timeout=10)
             except asyncio.TimeoutError:
                 try:
                     await websocket.send_json({"type": "ping"})
