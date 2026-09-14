@@ -748,6 +748,7 @@ def search_region_articles(
     max_count: int = 500,
     proxy: dict | None = None,
     on_article=None,
+    cancel_event=None,
 ) -> list[dict]:
     """지역명으로 전세안고 매매 매물 목록 수집 후 상세 필드까지 반환.
 
@@ -856,6 +857,9 @@ def search_region_articles(
         article_list: list[dict] = []
 
         while len(article_list) < max_count:
+            if cancel_event is not None and cancel_event.is_set():
+                log("  ■ 사용자가 종료함 — 지금까지 목록만으로 진행")
+                break
             result = page.evaluate(
                 """async ([params, pageNum, jwt]) => {
                     const url = `https://new.land.naver.com/api/articles?${params}&page=${pageNum}`;
@@ -903,6 +907,10 @@ def search_region_articles(
         next_recycle = RECYCLE_EVERY
 
         for batch_start in range(0, total, BATCH_SIZE):
+            if cancel_event is not None and cancel_event.is_set():
+                log(f"  ■ 사용자가 종료함 — {processed}/{total}건까지만 수집")
+                break
+
             batch = items[batch_start:batch_start + BATCH_SIZE]
 
             if processed >= next_recycle:
@@ -1050,7 +1058,7 @@ def search_region_articles(
 # ─── URL 목록 수집 (search_region_articles와 동일한 방식) ────────────────────
 
 def collect_articles_by_url_list(
-    url_list: list[str], log=print, proxy: dict | None = None, on_article=None
+    url_list: list[str], log=print, proxy: dict | None = None, on_article=None, cancel_event=None
 ) -> list[dict]:
     """URL 목록으로 매물 상세 수집.  search_region_articles와 동일한 배치 fetch 방식 사용.
 
@@ -1112,6 +1120,10 @@ def collect_articles_by_url_list(
         next_recycle = RECYCLE_EVERY
 
         for batch_start in range(0, total, BATCH_SIZE):
+            if cancel_event is not None and cancel_event.is_set():
+                log(f"  ■ 사용자가 종료함 — {processed}/{total}건까지만 수집")
+                break
+
             batch = items[batch_start:batch_start + BATCH_SIZE]
 
             if processed >= next_recycle:

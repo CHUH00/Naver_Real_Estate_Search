@@ -105,6 +105,31 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// 매물 탭에서 체크한 매물만 골라서 삭제.
+    func deleteListings(articleNos: Set<String>) async {
+        guard !articleNos.isEmpty else { return }
+        listings.removeAll { articleNos.contains($0.articleNo) }
+        rowCount = listings.count
+        persistCache()
+        guard let sid = sessionID else { return }
+        do {
+            try await APIClient.shared.deleteListings(sessionID: sid, articleNos: Array(articleNos))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func persistCache() {
+        guard let first = listings.first else {
+            ListingsCache.clear()
+            return
+        }
+        let headers = Array(first.fields.keys)
+        // Listing은 [String: String] dict라 원래 헤더 순서를 모른다 — 헤더/값을 짝지어 그대로 저장.
+        let rows = listings.map { listing in headers.map { listing[$0] } }
+        ListingsCache.save(headers: headers, rows: rows)
+    }
+
     /// 매물 탭의 "지우기" — 서버와 기기 캐시 양쪽에서 모두 삭제.
     func clearAllListings() async {
         listings = []

@@ -219,20 +219,36 @@ struct SearchView: View {
     // MARK: - Start button
 
     private var startButton: some View {
-        Button {
-            Task { await start() }
-        } label: {
-            if isStarting || model.logger.isRunning {
-                HStack(spacing: 8) {
-                    ProgressView().tint(.white)
-                    Text("수집 중…")
+        VStack(spacing: 10) {
+            Button {
+                Task { await start() }
+            } label: {
+                if isStarting || model.logger.isRunning {
+                    HStack(spacing: 8) {
+                        ProgressView().tint(.white)
+                        Text("수집 중…")
+                    }
+                } else {
+                    Text("수집 시작")
                 }
-            } else {
-                Text("수집 시작")
+            }
+            .buttonStyle(PrimaryButtonStyle(isEnabled: canStart && !isStarting && !model.logger.isRunning))
+            .disabled(isStarting || model.logger.isRunning || !canStart)
+
+            if model.logger.isRunning {
+                Button(role: .destructive) {
+                    model.logger.cancelByUser()
+                } label: {
+                    Label("수집 종료", systemImage: "xmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .foregroundStyle(Theme.error)
+                .background(Theme.error.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
             }
         }
-        .buttonStyle(PrimaryButtonStyle(isEnabled: canStart && !isStarting && !model.logger.isRunning))
-        .disabled(isStarting || model.logger.isRunning || !canStart)
     }
 
     private var canStart: Bool {

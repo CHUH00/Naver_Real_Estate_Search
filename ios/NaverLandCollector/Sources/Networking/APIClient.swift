@@ -87,6 +87,11 @@ final class APIClient {
         return try JSONDecoder().decode(ExcelPreviewResponse.self, from: data)
     }
 
+    func deleteListings(sessionID: String, articleNos: [String]) async throws {
+        let body: [String: Any] = ["session_id": sessionID, "article_nos": articleNos]
+        _ = try await postJSON("/api/excel/delete", body: body)
+    }
+
     /// 엑셀 파일을 로컬 임시 경로로 다운로드하고 그 경로를 반환 (공유 시트에 사용).
     func downloadExcel(_ sessionID: String) async throws -> URL {
         let req = URLRequest(url: try url("/api/excel/download", query: ["session_id": sessionID]))
@@ -121,6 +126,12 @@ final class APIClient {
         ]
         let data = try await postJSON("/api/scrape/urls", body: body)
         return try JSONDecoder().decode(ScrapeJobResponse.self, from: data).job_id
+    }
+
+    func cancelJob(jobID: String) async throws {
+        var req = URLRequest(url: try url("/api/scrape/cancel/\(jobID)"))
+        req.httpMethod = "POST"
+        _ = try await send(req)
     }
 
     /// http(s) base URL을 ws(s) 스킴으로 바꾼 웹소켓 URL.

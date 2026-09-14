@@ -53,6 +53,9 @@ _sessions: dict[str, Path] = {}
 # job_id → asyncio.Queue
 _jobs: dict[str, asyncio.Queue] = {}
 
+# job_id → threading.Event — 앱에서 "종료" 눌렀을 때 백그라운드 수집 스레드에 신호를 준다.
+_cancel_events: dict[str, threading.Event] = {}
+
 
 def _session_path(session_id: str) -> Path:
     return SESSIONS_DIR / f"{session_id}.xlsx"
@@ -182,6 +185,11 @@ class RegionRequest(BaseModel):
     filters: dict = {}
 
 
+class DeleteRequest(BaseModel):
+    session_id: str
+    article_nos: list[str]
+
+
 class UrlRequest(BaseModel):
     session_id: str
     urls: list[str]
@@ -300,11 +308,15 @@ async def scrape_region(req: RegionRequest):
     job_id = str(_uuid.uuid4())[:8]
     q: asyncio.Queue = asyncio.Queue()
     _jobs[job_id] = q
+    cancel_event = threading.Event()
+    _cancel_events[job_id] = cancel_event
     loop = asyncio.get_event_loop()
 
     def run():
         total_ok = total_skip = total_filtered = 0
         for i, region in enumerate(req.regions, 1):
+            if cancel_event.is_set():
+                break
             log = _make_log_fn(q, loop)
             log(f"\n── [{i}/{len(req.regions)}] {region} ──", "accent")
 
@@ -336,6 +348,7 @@ async def scrape_region(req: RegionRequest):
             try:
                 search_region_articles(
                     region, log=log, max_count=req.max_count, proxy=proxy, on_article=_on_article,
+                    cancel_event=cancel_event,
                 )
             except RuntimeError as e:
                 log(f"  ✗ 실패: {e} (여기까지 수집된 {counts['ok']}건은 저장됨)", "error")
@@ -350,6 +363,7 @@ async def scrape_region(req: RegionRequest):
             log(f"  저장 {counts['ok']}건 / 중복 {counts['skip']}건 / 필터 {counts['filtered']}건", "info")
             total_ok += counts["ok"]; total_skip += counts["skip"]; total_filtered += counts["filtered"]
 
+        _cancel_events.pop(job_id, None)
         loop.call_soon_threadsafe(q.put_nowait, {
             "type": "done", "ok": total_ok, "skip": total_skip, "filtered": total_filtered,
             "rows": _count_rows(excel_path),
@@ -374,6 +388,8 @@ async def scrape_urls(req: UrlRequest):
     job_id = str(_uuid.uuid4())[:8]
     q: asyncio.Queue = asyncio.Queue()
     _jobs[job_id] = q
+    cancel_event = threading.Event()
+    _cancel_events[job_id] = cancel_event
     loop = asyncio.get_event_loop()
 
     def run():
@@ -384,6 +400,7 @@ async def scrape_urls(req: UrlRequest):
             wb, ws = load_or_create_workbook(excel_path)
         except Exception as e:
             log(f"✗ Excel 오류: {e}", "error")
+            _cancel_events.pop(job_id, None)
             loop.call_soon_threadsafe(q.put_nowait, {"type": "done", "ok": 0, "skip": 0, "filtered": 0, "rows": 0})
             return
 
@@ -401,6 +418,7 @@ async def scrape_urls(req: UrlRequest):
                 log(f"  ✗ URL 오류: {e}", "error")
 
         if not urls_to_fetch:
+            _cancel_events.pop(job_id, None)
             loop.call_soon_threadsafe(q.put_nowait, {"type": "done", "ok": 0, "skip": skip, "filtered": 0, "rows": _count_rows(excel_path)})
             return
 
@@ -423,7 +441,9 @@ async def scrape_urls(req: UrlRequest):
                 counts["unsaved"] = 0
 
         try:
-            collect_articles_by_url_list(urls_to_fetch, log=log, proxy=proxy, on_article=_on_article)
+            collect_articles_by_url_list(
+                urls_to_fetch, log=log, proxy=proxy, on_article=_on_article, cancel_event=cancel_event,
+            )
         except Exception as e:
             log(f"✗ 수집 오류: {e} (여기까지 수집된 {counts['ok']}건은 저장됨)", "error")
 
@@ -435,6 +455,7 @@ async def scrape_urls(req: UrlRequest):
         ok, filtered = counts["ok"], counts["filtered"]
 
         log(f"  저장 {ok}건 / 중복 {skip}건 / 필터 {filtered}건", "info")
+        _cancel_events.pop(job_id, None)
         loop.call_soon_threadsafe(q.put_nowait, {
             "type": "done", "ok": ok, "skip": skip, "filtered": filtered,
             "rows": _count_rows(excel_path),
@@ -442,6 +463,27 @@ async def scrape_urls(req: UrlRequest):
 
     threading.Thread(target=run, daemon=True).start()
     return {"job_id": job_id}
+
+
+@app.post("/api/scrape/cancel/{job_id}")
+async def cancel_scrape(job_id: str):
+    """수집 중 '종료' — 백그라운드 스레드에 중단 신호를 보내고, 클라이언트도
+    바로 멈춘 것으로 볼 수 있도록 즉시 done을 하나 흘려보낸다.
+    실제 스레드는 다음 배치/페이지 체크 지점에서 곧 스스로 멈추고
+    그때까지 모은 매물은 이미 저장되어 있다.
+    """
+    ev = _cancel_events.get(job_id)
+    if ev is None:
+        return JSONResponse({"error": "이미 끝났거나 존재하지 않는 작업입니다."}, status_code=404)
+    ev.set()
+
+    q = _jobs.get(job_id)
+    if q is not None:
+        loop = asyncio.get_event_loop()
+        loop.call_soon_threadsafe(q.put_nowait, {
+            "type": "log", "msg": "■ 종료 요청됨 — 지금까지 수집된 매물까지 저장하고 정리 중...", "tag": "error",
+        })
+    return {"ok": True}
 
 
 # ── File endpoints ────────────────────────────────────────────────────────────
@@ -456,6 +498,31 @@ async def download_excel(session_id: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename="네이버_부동산_매물.xlsx",
     )
+
+
+@app.post("/api/excel/delete")
+async def delete_listings(req: DeleteRequest):
+    """매물 탭에서 선택한 매물(들)만 골라서 삭제."""
+    path = _get_session_file(req.session_id)
+    target = set(req.article_nos)
+    if not target:
+        return {"deleted": 0, "rows": _count_rows(path)}
+    try:
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+        # article_no는 HEADERS_MAP의 2번째 열(매물번호). 뒤에서부터 지워야
+        # 앞쪽 행을 지울 때 뒤 행 번호가 밀리는 문제가 없다.
+        rows_to_delete = [
+            row[0].row for row in ws.iter_rows(min_row=2)
+            if str(row[1].value or "") in target
+        ]
+        for row_idx in sorted(rows_to_delete, reverse=True):
+            ws.delete_rows(row_idx)
+        wb.save(path)
+        wb.close()
+        return {"deleted": len(rows_to_delete), "rows": _count_rows(path)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/api/session/reset")

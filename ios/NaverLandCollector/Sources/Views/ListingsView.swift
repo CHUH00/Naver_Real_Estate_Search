@@ -4,6 +4,9 @@ struct ListingsView: View {
     @ObservedObject var model: AppModel
     @State private var searchText = ""
     @State private var showClearConfirm = false
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<Int> = []
+    @State private var showDeleteSelectedConfirm = false
 
     private var filtered: [Listing] {
         guard !searchText.isEmpty else { return model.listings }
@@ -22,13 +25,23 @@ struct ListingsView: View {
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             ForEach(filtered) { listing in
-                                NavigationLink(value: listing.id) {
-                                    ListingRow(listing: listing)
+                                if isSelecting {
+                                    Button {
+                                        toggleSelection(listing.id)
+                                    } label: {
+                                        ListingRow(listing: listing, isSelecting: true, isSelected: selectedIDs.contains(listing.id))
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    NavigationLink(value: listing.id) {
+                                        ListingRow(listing: listing, isSelecting: false, isSelected: false)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(16)
+                        .padding(.bottom, isSelecting ? 70 : 0)
                     }
                     .searchable(text: $searchText, prompt: "단지명 또는 주소 검색")
                     .refreshable { await model.refreshListings() }
@@ -42,6 +55,17 @@ struct ListingsView: View {
                 }
             }
             .toolbar {
+                if !model.listings.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(isSelecting ? "완료" : "선택") {
+                            withAnimation {
+                                isSelecting.toggle()
+                                selectedIDs.removeAll()
+                            }
+                        }
+                        .foregroundStyle(Theme.accent)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await model.refreshListings() }
@@ -54,11 +78,16 @@ struct ListingsView: View {
                     }
                     .tint(Theme.accent)
                 }
-                if !model.listings.isEmpty {
+                if !model.listings.isEmpty && !isSelecting {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("지우기") { showClearConfirm = true }
                             .foregroundStyle(Theme.error)
                     }
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if isSelecting && !selectedIDs.isEmpty {
+                    deleteSelectedBar
                 }
             }
             .task { await model.refreshListings() }
@@ -68,6 +97,36 @@ struct ListingsView: View {
                 }
                 Button("취소", role: .cancel) {}
             }
+            .confirmationDialog("선택한 \(selectedIDs.count)건을 삭제할까요?", isPresented: $showDeleteSelectedConfirm, titleVisibility: .visible) {
+                Button("\(selectedIDs.count)건 삭제", role: .destructive) {
+                    let nos = Set(model.listings.filter { selectedIDs.contains($0.id) }.map { $0.articleNo })
+                    Task { await model.deleteListings(articleNos: nos) }
+                    isSelecting = false
+                    selectedIDs.removeAll()
+                }
+                Button("취소", role: .cancel) {}
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: Int) {
+        if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }
+    }
+
+    private var deleteSelectedBar: some View {
+        Button {
+            showDeleteSelectedConfirm = true
+        } label: {
+            Label("\(selectedIDs.count)건 삭제", systemImage: "trash.fill")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Theme.error)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+                .shadow(color: Theme.error.opacity(0.35), radius: 10, y: 4)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
         }
     }
 
@@ -94,8 +153,30 @@ struct ListingsView: View {
 
 private struct ListingRow: View {
     let listing: Listing
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
 
     var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(isSelected ? Theme.accent : Theme.textFaint)
+                    .padding(.top, 2)
+            }
+            content
+        }
+        .padding(14)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                .strokeBorder(isSelected ? Theme.accent : Color.clear, lineWidth: 2)
+        )
+        .shadow(color: .black.opacity(0.04), radius: 10, y: 3)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -134,10 +215,6 @@ private struct ListingRow: View {
                 }
             }
         }
-        .padding(14)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 10, y: 3)
     }
 
     private var specs: [String] {

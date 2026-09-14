@@ -112,6 +112,17 @@ final class WebSocketLogger: ObservableObject {
         finish()
     }
 
+    /// 사용자가 직접 "종료" 버튼을 눌렀을 때 — 서버에도 중단 신호를 보내고,
+    /// 응답을 기다리지 않고 화면은 즉시 멈춘 것으로 표시한다.
+    func cancelByUser() {
+        guard isRunning, let jobID = currentJobID else { return }
+        append("■ 종료 요청 중…", tag: "error")
+        finish()
+        Task {
+            try? await APIClient.shared.cancelJob(jobID: jobID)
+        }
+    }
+
     func clear() {
         entries.removeAll()
         resultSummary = nil

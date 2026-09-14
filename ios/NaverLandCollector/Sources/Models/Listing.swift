@@ -18,6 +18,7 @@ struct Listing: Identifiable {
         fields[header] ?? ""
     }
 
+    var articleNo: String { self["매물번호"] }
     var complexName: String { self["단지명"].isEmpty ? "이름 없음" : self["단지명"] }
     var address: String { self["주소"] }
     var priceMain: String { self["매매가 (만원)"] }

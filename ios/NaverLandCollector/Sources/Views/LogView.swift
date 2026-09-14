@@ -58,15 +58,19 @@ struct LogView: View {
     }
 
     private var runningPill: some View {
-        HStack(spacing: 8) {
-            ProgressView().tint(.white)
-            Text("수집 중…").foregroundStyle(.white)
+        Button {
+            logger.cancelByUser()
+        } label: {
+            HStack(spacing: 8) {
+                ProgressView().tint(.white)
+                Text("수집 중… (눌러서 종료)").foregroundStyle(.white)
+            }
+            .font(.footnote.weight(.semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Theme.accent, in: Capsule())
+            .shadow(color: Theme.accent.opacity(0.35), radius: 10, y: 4)
         }
-        .font(.footnote.weight(.semibold))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Theme.accent, in: Capsule())
-        .shadow(color: Theme.accent.opacity(0.35), radius: 10, y: 4)
         .padding(.bottom, 12)
     }
 
