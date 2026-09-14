@@ -93,7 +93,6 @@ struct LogView: View {
         }
     }
 
-    @ViewBuilder
     private func icon(for entry: LogEntry, text: String) -> some View {
         let name: String
         let tint: Color
@@ -109,7 +108,7 @@ struct LogView: View {
                 name = "circle.fill"; tint = Theme.textFaint
             }
         }
-        Image(systemName: name)
+        return Image(systemName: name)
             .font(.system(size: name == "circle.fill" ? 5 : 13))
             .foregroundStyle(tint)
             .frame(width: 16, height: 18)
