@@ -879,6 +879,21 @@ def search_region_articles(
 
         # ── 5. 각 매물 상세 조회 ────────────────────────────────────────────
         for i, art in enumerate(article_list[:max_count]):
+            # 한 페이지(브라우저 탭)에서 너무 많은 fetch를 반복하면 크로미움
+            # 렌더러 프로세스의 메모리가 계속 누적돼(V8 힙 등) 결국 컨테이너
+            # 메모리 한도를 넘겨 프로세스 전체가 죽을 수 있음. 그래서 일정
+            # 개수마다 page만 새로 만들어 렌더러 메모리를 초기화한다.
+            # (같은 browser/context를 재사용하므로 JWT/쿠키는 그대로 유효함)
+            if i > 0 and i % 50 == 0:
+                try:
+                    old_page = page
+                    page = ctx.new_page()
+                    page.on("request", _on_request)
+                    old_page.close()
+                    log(f"  (메모리 정리를 위해 페이지 새로고침, {i}건째)")
+                except Exception as e:
+                    log(f"  ⚠ 페이지 재생성 실패(계속 진행): {e}")
+
             article_no = str(art.get("articleNo", ""))
             if not article_no:
                 continue
@@ -1061,6 +1076,16 @@ def collect_articles_by_url_list(
         log("  인증 완료")
 
         for i, (article_no, complex_no_hint, original_url) in enumerate(parsed):
+            if i > 0 and i % 50 == 0:
+                try:
+                    old_page = page
+                    page = ctx.new_page()
+                    page.on("request", _on_request)
+                    old_page.close()
+                    log(f"  (메모리 정리를 위해 페이지 새로고침, {i}건째)")
+                except Exception as e:
+                    log(f"  ⚠ 페이지 재생성 실패(계속 진행): {e}")
+
             try:
                 nav_url = (
                     f"https://new.land.naver.com/complexes/{complex_no_hint}?articleNo={article_no}"
