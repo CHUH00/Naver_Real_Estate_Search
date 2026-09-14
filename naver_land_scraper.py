@@ -165,7 +165,7 @@ def fetch_via_browser(article_no: str, complex_no: str, original_url: str, log=p
 
     log("  브라우저로 페이지 로딩 중...")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
         ctx = browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -594,6 +594,16 @@ _UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
+# Render 무료 티어처럼 메모리가 넉넉하지 않은 환경에서 헤드리스 크로미움이
+# 메모리를 덜 쓰도록 하는 launch 옵션 (OOM으로 인한 프로세스 재시작 완화).
+_CHROMIUM_ARGS = [
+    "--disable-dev-shm-usage",  # 컨테이너의 좁은 /dev/shm 대신 디스크 사용 (크래시 방지)
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--no-zygote",              # 보조 프로세스 하나 줄임
+]
+
 
 import os
 
@@ -756,7 +766,7 @@ def search_region_articles(
     all_fields: list[dict] = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, proxy=proxy)
+        browser = p.chromium.launch(headless=True, proxy=proxy, args=_CHROMIUM_ARGS)
         ctx = browser.new_context(user_agent=_UA, locale="ko-KR")
         page = ctx.new_page()
         page.on("request", _on_request)
@@ -1031,7 +1041,7 @@ def collect_articles_by_url_list(
     _rp_cache: dict[tuple, dict]  = {}
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, proxy=proxy)
+        browser = p.chromium.launch(headless=True, proxy=proxy, args=_CHROMIUM_ARGS)
         ctx = browser.new_context(user_agent=_UA, locale="ko-KR")
         page = ctx.new_page()
         page.on("request", _on_request)
