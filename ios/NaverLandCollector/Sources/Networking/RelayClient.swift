@@ -1,11 +1,18 @@
 import Foundation
 import Network
+import UIKit
 
 /// 네이버가 클라우드 서버 IP를 차단하기 때문에, 서버(Render) 대신 이 아이폰의
 /// 실제 이동통신/와이파이 네트워크로 네이버 요청을 대신 내보내주는 중계 클라이언트.
 ///
 /// 서버(web/relay.py)가 SOCKS5 CONNECT 요청을 이 웹소켓으로 보내면, 여기서 실제
-/// TCP 연결을 열어 바이트를 그대로 주고받는다. 앱이 켜져 있는 동안에만 동작한다.
+/// TCP 연결을 열어 바이트를 그대로 주고받는다.
+///
+/// 앱을 백그라운드로 내려도(화면 잠금, 다른 앱으로 전환) 잠시 동안은 계속
+/// 수집이 이어지도록 UIBackgroundTask로 실행 시간을 연장한다. 단, 이는 iOS가
+/// 허용하는 범위 내의 "연장"일 뿐이며, 앱을 완전히 종료(스와이프)하면 즉시
+/// 끊긴다 — iOS 정책상 일반 앱이 무기한 백그라운드 네트워킹을 하는 것은
+/// 불가능하다.
 @MainActor
 final class RelayClient: ObservableObject {
     static let shared = RelayClient()
@@ -17,8 +24,37 @@ final class RelayClient: ObservableObject {
     private var reconnectWorkItem: DispatchWorkItem?
     private var connections: [Int: NWConnection] = [:]
     private var shouldRun = false
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
-    private init() {}
+    private init() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleDidEnterBackground() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleWillEnterForeground() }
+        }
+    }
+
+    private func handleDidEnterBackground() {
+        guard shouldRun, backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "naverland-relay") { [weak self] in
+            self?.endBackgroundTask()
+        }
+    }
+
+    private func handleWillEnterForeground() {
+        endBackgroundTask()
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+    }
 
     func start(sessionID: String) {
         shouldRun = true
@@ -29,6 +65,7 @@ final class RelayClient: ObservableObject {
 
     func stop() {
         shouldRun = false
+        endBackgroundTask()
         reconnectWorkItem?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
