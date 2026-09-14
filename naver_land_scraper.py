@@ -889,6 +889,13 @@ def search_region_articles(
                     old_page = page
                     page = ctx.new_page()
                     page.on("request", _on_request)
+                    # 새 페이지는 about:blank라 origin이 없어서 바로 fetch()하면
+                    # CORS에 막혀 전부 실패한다 — 같은 도메인으로 한 번 이동시켜
+                    # origin을 맞춰준다.
+                    page.goto(
+                        "https://new.land.naver.com/complexes/338?ms=37.5762,127.0348,15&a=APT&b=A1&e=RETAIL",
+                        wait_until="domcontentloaded", timeout=30000,
+                    )
                     old_page.close()
                     log(f"  (메모리 정리를 위해 페이지 새로고침, {i}건째)")
                 except Exception as e:
