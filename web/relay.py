@@ -164,13 +164,25 @@ async def _pump_local_to_remote(session_id: str, stream_id: int, reader: asyncio
 
 
 async def _pump_remote_to_local(session_id: str, stream_id: int, writer: asyncio.StreamWriter):
+    """폰에서 오는 데이터를 로컬 소켓으로 흘려보낸다.
+
+    폰이 앱 종료 등으로 깨끗하게 연결을 끊지 못하고 그냥 사라지는 경우
+    (예: 강제 종료, 네트워크 전환), q.get()이 영원히 안 끝날 수 있다.
+    이러면 이 스트림을 기다리는 Playwright의 fetch 호출도 영원히 멈추고,
+    그 백그라운드 스레드 전체가 멈춰서 서버 리소스를 계속 붙잡게 된다.
+    그래서 일정 시간 데이터가 없으면 죽은 것으로 보고 스트림을 닫는다.
+    """
     key = (session_id, stream_id)
     q = _streams.get(key)
     if q is None:
         return
+    IDLE_TIMEOUT = 45
     try:
         while True:
-            chunk = await q.get()
+            try:
+                chunk = await asyncio.wait_for(q.get(), timeout=IDLE_TIMEOUT)
+            except asyncio.TimeoutError:
+                break
             if chunk is None:
                 break
             writer.write(chunk)
@@ -178,6 +190,7 @@ async def _pump_remote_to_local(session_id: str, stream_id: int, writer: asyncio
     except (asyncio.CancelledError, ConnectionResetError):
         pass
     finally:
+        _streams.pop(key, None)
         try:
             writer.close()
         except Exception:
