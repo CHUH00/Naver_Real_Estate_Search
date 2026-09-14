@@ -41,7 +41,6 @@ struct ContentView: View {
                 .tag(3)
         }
         .tint(Theme.accent)
-        .preferredColorScheme(.light)
         .task { await model.ensureSession() }
         .alert("오류", isPresented: Binding(
             get: { model.errorMessage != nil },

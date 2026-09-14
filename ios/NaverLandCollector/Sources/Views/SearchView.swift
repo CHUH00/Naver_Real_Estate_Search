@@ -87,7 +87,7 @@ struct SearchView: View {
             modeButton("URL 직접 입력", tag: 1)
         }
         .padding(4)
-        .background(Color(red: 0.902, green: 0.914, blue: 0.933))
+        .background(Theme.track)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
     }
 

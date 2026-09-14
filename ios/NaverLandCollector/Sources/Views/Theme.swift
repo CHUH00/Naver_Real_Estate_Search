@@ -1,20 +1,77 @@
 import SwiftUI
+import UIKit
 
-/// 토스 스타일 디자인 시스템 — 화이트 배경, 블루 액센트, 카드 기반 레이아웃.
+/// 토스 스타일 디자인 시스템 — 화이트/블루(라이트) · 다크 네이비/블루(다크), 카드 기반 레이아웃.
+///
+/// 모든 색은 시스템 다크모드 설정에 따라 자동으로 바뀌는 다이내믹 컬러다
+/// (UIColor의 트레잇 기반 provider를 그대로 감싸서 씀). 그래서 화면 쪽 코드는
+/// 라이트/다크를 신경쓸 필요 없이 그냥 Theme.xxx 를 쓰면 된다.
 enum Theme {
-    static let background       = Color(red: 0.965, green: 0.969, blue: 0.976)   // #F6F7F9
-    static let surface           = Color.white
-    static let surfaceElevated  = Color.white
-    static let border           = Color(red: 0.910, green: 0.922, blue: 0.941)   // #E8EBF0
-    static let textPrimary      = Color(red: 0.098, green: 0.122, blue: 0.157)   // #191F28
-    static let textSecondary    = Color(red: 0.451, green: 0.486, blue: 0.529)   // #737C87
-    static let textFaint        = Color(red: 0.690, green: 0.710, blue: 0.749)   // #B0B5BF
-    static let accent           = Color(red: 0.192, green: 0.510, blue: 0.965)   // #3182F6 (토스 블루)
-    static let accentBright     = Color(red: 0.322, green: 0.588, blue: 0.980)   // #52A9FA
-    static let accentSoft       = Color(red: 0.906, green: 0.937, blue: 0.996)   // #E7EFFE
-    static let success          = Color(red: 0.000, green: 0.769, blue: 0.443)   // #00C471
-    static let error            = Color(red: 0.941, green: 0.267, blue: 0.322)   // #F04452
-    static let info             = accent
+    /// 라이트용 RGB와 다크용 RGB를 받아 트레잇에 따라 자동 전환되는 Color를 만든다.
+    private static func dynamic(
+        light: (Double, Double, Double),
+        dark: (Double, Double, Double)
+    ) -> Color {
+        Color(UIColor { trait in
+            let (r, g, b) = trait.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: r, green: g, blue: b, alpha: 1)
+        })
+    }
+
+    static let background = dynamic(
+        light: (0.965, 0.969, 0.976),   // #F6F7F9
+        dark:  (0.055, 0.059, 0.067)    // #0E0F11
+    )
+    static let surface = dynamic(
+        light: (1.000, 1.000, 1.000),   // 흰색
+        dark:  (0.106, 0.114, 0.125)    // #1B1D20
+    )
+    static let surfaceElevated = dynamic(
+        light: (1.000, 1.000, 1.000),
+        dark:  (0.141, 0.149, 0.165)    // #242630
+    )
+    static let border = dynamic(
+        light: (0.910, 0.922, 0.941),   // #E8EBF0
+        dark:  (0.196, 0.204, 0.220)    // #323438
+    )
+    static let textPrimary = dynamic(
+        light: (0.098, 0.122, 0.157),   // #191F28
+        dark:  (0.949, 0.953, 0.961)    // #F2F3F5
+    )
+    static let textSecondary = dynamic(
+        light: (0.451, 0.486, 0.529),   // #737C87
+        dark:  (0.635, 0.655, 0.678)    // #A2A7AD
+    )
+    static let textFaint = dynamic(
+        light: (0.690, 0.710, 0.749),   // #B0B5BF
+        dark:  (0.392, 0.412, 0.435)    // #64696F
+    )
+    static let accent = dynamic(
+        light: (0.192, 0.510, 0.965),   // #3182F6 (토스 블루)
+        dark:  (0.290, 0.573, 1.000)    // #4A92FF — 어두운 배경에서 살짝 밝게
+    )
+    static let accentBright = dynamic(
+        light: (0.322, 0.588, 0.980),   // #52A9FA
+        dark:  (0.400, 0.651, 1.000)    // #66A6FF
+    )
+    static let accentSoft = dynamic(
+        light: (0.906, 0.937, 0.996),   // #E7EFFE
+        dark:  (0.110, 0.169, 0.271)    // #1C2B45
+    )
+    static let success = dynamic(
+        light: (0.000, 0.769, 0.443),   // #00C471
+        dark:  (0.204, 0.831, 0.522)    // #34D485
+    )
+    static let error = dynamic(
+        light: (0.941, 0.267, 0.322),   // #F04452
+        dark:  (1.000, 0.373, 0.408)    // #FF5F68
+    )
+    static let info = accent
+    /// 세그먼트 스위처 같은 곳의 "홈" 트랙 배경.
+    static let track = dynamic(
+        light: (0.902, 0.914, 0.933),   // #E6E9EE
+        dark:  (0.192, 0.200, 0.216)    // #313337
+    )
 
     static let radiusLarge: CGFloat = 24
     static let radius: CGFloat = 16
