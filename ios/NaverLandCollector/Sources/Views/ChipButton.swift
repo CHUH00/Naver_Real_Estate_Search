@@ -19,8 +19,8 @@ struct ChipButton: View {
                 .font(.footnote.weight(isSelected ? .semibold : .regular))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(isSelected ? color : Theme.surfaceElevated)
-                .foregroundStyle(isSelected ? Theme.background : Theme.textPrimary)
+                .background(isSelected ? color : Theme.background)
+                .foregroundStyle(isSelected ? .white : Theme.textPrimary)
                 .clipShape(Capsule())
                 .overlay(
                     Capsule().strokeBorder(isSelected ? Color.clear : Theme.border, lineWidth: 1)

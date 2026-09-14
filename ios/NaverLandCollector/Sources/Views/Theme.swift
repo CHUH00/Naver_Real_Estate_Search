@@ -1,30 +1,31 @@
 import SwiftUI
 
-/// 앱 전체에서 공유하는 디자인 시스템. 앱 아이콘과 통일된 다크 네이비 + 골드 톤.
+/// 토스 스타일 디자인 시스템 — 화이트 배경, 블루 액센트, 카드 기반 레이아웃.
 enum Theme {
-    static let background       = Color(red: 0.043, green: 0.055, blue: 0.075)   // #0B0E13
-    static let surface           = Color(red: 0.086, green: 0.114, blue: 0.157)   // #161D28
-    static let surfaceElevated  = Color(red: 0.122, green: 0.157, blue: 0.208)   // #1F2835
-    static let border           = Color(red: 0.157, green: 0.204, blue: 0.267)   // #283444
-    static let textPrimary      = Color(red: 0.918, green: 0.937, blue: 0.965)   // #EAEFF6
-    static let textSecondary    = Color(red: 0.545, green: 0.596, blue: 0.671)   // #8B98AB
-    static let textFaint        = Color(red: 0.361, green: 0.408, blue: 0.482)   // #5C687B
-    static let accent           = Color(red: 0.961, green: 0.659, blue: 0.000)   // #F5A800
-    static let accentBright     = Color(red: 1.000, green: 0.773, blue: 0.290)   // #FFC54A
-    static let success          = Color(red: 0.204, green: 0.816, blue: 0.475)   // #34D079
-    static let error            = Color(red: 0.941, green: 0.376, blue: 0.376)   // #F06060
-    static let info             = Color(red: 0.408, green: 0.663, blue: 0.867)   // #68A9DD
+    static let background       = Color(red: 0.965, green: 0.969, blue: 0.976)   // #F6F7F9
+    static let surface           = Color.white
+    static let surfaceElevated  = Color.white
+    static let border           = Color(red: 0.910, green: 0.922, blue: 0.941)   // #E8EBF0
+    static let textPrimary      = Color(red: 0.098, green: 0.122, blue: 0.157)   // #191F28
+    static let textSecondary    = Color(red: 0.451, green: 0.486, blue: 0.529)   // #737C87
+    static let textFaint        = Color(red: 0.690, green: 0.710, blue: 0.749)   // #B0B5BF
+    static let accent           = Color(red: 0.192, green: 0.510, blue: 0.965)   // #3182F6 (토스 블루)
+    static let accentBright     = Color(red: 0.322, green: 0.588, blue: 0.980)   // #52A9FA
+    static let accentSoft       = Color(red: 0.906, green: 0.937, blue: 0.996)   // #E7EFFE
+    static let success          = Color(red: 0.000, green: 0.769, blue: 0.443)   // #00C471
+    static let error            = Color(red: 0.941, green: 0.267, blue: 0.322)   // #F04452
+    static let info             = accent
 
-    static let radiusLarge: CGFloat = 22
+    static let radiusLarge: CGFloat = 24
     static let radius: CGFloat = 16
-    static let radiusSmall: CGFloat = 10
+    static let radiusSmall: CGFloat = 12
 
     static let cornerRadius: CGFloat = 16 // 하위 호환
 }
 
 // MARK: - Reusable components
 
-/// 카드형 컨테이너 — 모든 섹션의 기본 배경.
+/// 카드형 컨테이너 — 얇은 보더 대신 은은한 그림자로 배경과 분리.
 struct Card<Content: View>: View {
     var padding: CGFloat = 18
     @ViewBuilder var content: Content
@@ -34,10 +35,7 @@ struct Card<Content: View>: View {
             .padding(padding)
             .background(Theme.surface)
             .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                    .strokeBorder(Theme.border, lineWidth: 1)
-            )
+            .shadow(color: .black.opacity(0.04), radius: 12, y: 4)
     }
 }
 
@@ -65,16 +63,16 @@ struct SectionHeader: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Theme.accent.opacity(0.14))
-                    .frame(width: 30, height: 30)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.accentSoft)
+                    .frame(width: 32, height: 32)
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.accent)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(Theme.textPrimary)
                 if let subtitle {
                     Text(subtitle)
@@ -88,48 +86,39 @@ struct SectionHeader: View {
     }
 }
 
-/// 골드 그라디언트 primary 버튼.
+/// 토스 블루 primary 버튼 — 큰 탭 영역, 플랫 컬러.
 struct PrimaryButtonStyle: ButtonStyle {
     var isEnabled: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline)
-            .foregroundStyle(Theme.background)
+            .font(.system(.headline, weight: .bold))
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(
-                LinearGradient(
-                    colors: isEnabled ? [Theme.accentBright, Theme.accent] : [Theme.textFaint, Theme.textFaint],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
+            .padding(.vertical, 17)
+            .background(isEnabled ? Theme.accent : Theme.textFaint)
             .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-            .shadow(color: isEnabled ? Theme.accent.opacity(0.35) : .clear, radius: 14, y: 6)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 
-/// 아웃라인 텍스트필드 스타일 — 데스크톱 앱의 입력창 느낌.
+/// 연한 회색 배경의 입력창 스타일 — 보더 없이 채워진 필드.
 struct BoxedTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .background(Theme.background)
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-                    .strokeBorder(Theme.border, lineWidth: 1)
-            )
             .foregroundStyle(Theme.textPrimary)
             .tint(Theme.accent)
     }
 }
 
 extension View {
-    /// Form/List 계열 화면에 다크 배경을 일관되게 입히기 위한 modifier (레거시 화면용).
+    /// Form/List 계열 화면에 앱 배경색을 일관되게 입히기 위한 modifier (레거시 화면용).
     func themedListBackground() -> some View {
         self.scrollContentBackground(.hidden).background(Theme.background)
     }

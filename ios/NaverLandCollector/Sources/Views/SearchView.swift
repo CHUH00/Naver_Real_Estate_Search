@@ -104,7 +104,7 @@ struct SearchView: View {
                 .font(.subheadline.weight(mode == tag ? .semibold : .regular))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .foregroundStyle(mode == tag ? Theme.background : Theme.textSecondary)
+                .foregroundStyle(mode == tag ? .white : Theme.textSecondary)
                 .background(mode == tag ? Theme.accent : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         }
@@ -232,7 +232,7 @@ struct SearchView: View {
         } label: {
             if isStarting || model.logger.isRunning {
                 HStack(spacing: 8) {
-                    ProgressView().tint(Theme.background)
+                    ProgressView().tint(.white)
                     Text("수집 중…")
                 }
             } else {

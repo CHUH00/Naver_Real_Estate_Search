@@ -124,7 +124,7 @@ private struct ListingRow: View {
                             .foregroundStyle(Theme.textSecondary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Theme.surfaceElevated)
+                            .background(Theme.background)
                             .clipShape(Capsule())
                     }
                     Spacer()
@@ -137,10 +137,7 @@ private struct ListingRow: View {
         .padding(14)
         .background(Theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                .strokeBorder(Theme.border, lineWidth: 1)
-        )
+        .shadow(color: .black.opacity(0.04), radius: 10, y: 3)
     }
 
     private var specs: [String] {
@@ -261,7 +258,7 @@ struct ListingDetailView: View {
                             }
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Theme.surfaceElevated)
+                            .background(Theme.background)
                             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                         }
                     }

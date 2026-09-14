@@ -8,6 +8,7 @@ struct ContentView: View {
         let tabAppearance = UITabBarAppearance()
         tabAppearance.configureWithOpaqueBackground()
         tabAppearance.backgroundColor = UIColor(Theme.surface)
+        tabAppearance.shadowColor = UIColor(Theme.border)
         UITabBar.appearance().standardAppearance = tabAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabAppearance
 
@@ -32,7 +33,7 @@ struct ContentView: View {
                 .tag(1)
 
             LogView(logger: model.logger)
-                .tabItem { Label("로그", systemImage: "terminal") }
+                .tabItem { Label("로그", systemImage: "list.bullet.clipboard") }
                 .tag(2)
 
             SettingsView(model: model)
@@ -40,7 +41,7 @@ struct ContentView: View {
                 .tag(3)
         }
         .tint(Theme.accent)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
         .task { await model.ensureSession() }
         .alert("오류", isPresented: Binding(
             get: { model.errorMessage != nil },

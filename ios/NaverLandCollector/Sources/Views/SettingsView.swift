@@ -29,7 +29,7 @@ struct SettingsView: View {
                             } label: {
                                 Text("저장").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 10)
                             }
-                            .foregroundStyle(Theme.background)
+                            .foregroundStyle(.white)
                             .background(Theme.accent)
                             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
 

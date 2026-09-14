@@ -891,77 +891,88 @@ def search_region_articles(
         log(f"  상세 조회 시작: {min(len(article_list), max_count)}개")
 
         # 기보증금 실거래가 캐시 (complexNo별 1회 조회)
-        _pyeong_cache: dict[str, list] = {}   # cno → [{pyeongNo, exclusiveArea}]
-        _rp_cache: dict[tuple, dict]  = {}   # (cno, pyeongNo) → realPrice dict
+        _pyeong_cache: dict[str, list] = {}
+        _rp_cache: dict[tuple, dict] = {}
 
-        # ── 5. 각 매물 상세 조회 ────────────────────────────────────────────
-        for i, art in enumerate(article_list[:max_count]):
-            # 한 페이지(브라우저 탭)에서 너무 많은 fetch를 반복하면 크로미움
-            # 렌더러 프로세스의 메모리가 계속 누적돼(V8 힙 등) 결국 컨테이너
-            # 메모리 한도를 넘겨 프로세스 전체가 죽을 수 있음. 그래서 일정
-            # 개수마다 page만 새로 만들어 렌더러 메모리를 초기화한다.
-            # (같은 browser/context를 재사용하므로 JWT/쿠키는 그대로 유효함)
-            if i > 0 and i % 50 == 0:
+        # ── 5. 각 매물 상세 조회 (여러 건을 한 번에 동시 요청) ──────────────
+        BATCH_SIZE = 6
+        RECYCLE_EVERY = 50
+        items = list(enumerate(article_list[:max_count]))
+        total = len(items)
+        processed = 0
+        next_recycle = RECYCLE_EVERY
+
+        for batch_start in range(0, total, BATCH_SIZE):
+            batch = items[batch_start:batch_start + BATCH_SIZE]
+
+            if processed >= next_recycle:
                 try:
                     old_page = page
                     page = ctx.new_page()
                     page.on("request", _on_request)
-                    # 새 페이지는 about:blank라 origin이 없어서 바로 fetch()하면
-                    # CORS에 막혀 전부 실패한다 — 같은 도메인으로 한 번 이동시켜
-                    # origin을 맞춰줘야 함. 단, 이미지/CSS/JS까지 다 딸려오는
-                    # 무거운 페이지를 통째로 불러오면 아이폰 릴레이로 큰 트래픽이
-                    # 갑자기 튀어서 연결이 흔들릴 수 있어, 아주 가벼운 API
-                    # 응답(JSON 몇백 바이트) 하나만 불러와 origin만 맞춘다.
-                    # (인증 없이 401이 나도 상관없음 — origin만 맞으면 충분함)
+                    # 새 page는 origin이 없어 fetch가 CORS에 막히므로 가벼운
+                    # 같은 도메인 요청 하나로 origin만 맞춘다.
                     page.goto(
                         "https://new.land.naver.com/api/cortars?zoom=15&centerLat=37.5665&centerLon=126.9780",
                         wait_until="commit", timeout=15000,
                     )
                     old_page.close()
-                    log(f"  (메모리 정리를 위해 페이지 새로고침, {i}건째)")
+                    log(f"  (메모리 정리를 위해 페이지 새로고침, {processed}건째)")
                 except Exception as e:
                     log(f"  ⚠ 페이지 재생성 실패(계속 진행): {e}")
+                next_recycle += RECYCLE_EVERY
 
-            article_no = str(art.get("articleNo", ""))
-            if not article_no:
+            valid = [(i, art, str(art.get("articleNo", ""))) for i, art in batch if str(art.get("articleNo", ""))]
+            processed += len(batch) - len(valid)
+            if not valid:
                 continue
 
-            article_url = f"https://new.land.naver.com/articles/{article_no}"
             try:
-                detail = page.evaluate(
-                    """async ([articleNo, jwt]) => {
-                        const r = await fetch(
-                            `https://new.land.naver.com/api/articles/${articleNo}`,
-                            {headers: {'Authorization': 'Bearer ' + jwt,
-                                       'Accept': 'application/json',
-                                       'Referer': 'https://new.land.naver.com/'}}
-                        );
-                        return r.ok ? await r.json() : null;
+                details = page.evaluate(
+                    """async ([nos, jwt]) => {
+                        const fetchOne = async (no) => {
+                            try {
+                                const r = await fetch(
+                                    `https://new.land.naver.com/api/articles/${no}`,
+                                    {headers: {'Authorization': 'Bearer ' + jwt,
+                                               'Accept': 'application/json',
+                                               'Referer': 'https://new.land.naver.com/'}}
+                                );
+                                return r.ok ? await r.json() : null;
+                            } catch (e) {
+                                return null;
+                            }
+                        };
+                        return Promise.all(nos.map(fetchOne));
                     }""",
-                    [article_no, jwt_token[0]],
+                    [[no for _, _, no in valid], jwt_token[0]],
                 )
+            except Exception as e:
+                log(f"  배치 조회 오류(건너뜀): {e}")
+                details = [None] * len(valid)
 
-                if detail and detail.get("articleDetail"):
-                    # 올바른 URL: complexes/{hscpNo}?articleNo=...
-                    complex_no = str(
-                        detail.get("articleDetail", {}).get("hscpNo", "") or ""
-                    )
+            for (i, art, article_no), detail in zip(valid, details):
+                processed += 1
+                article_url = f"https://new.land.naver.com/articles/{article_no}"
+                try:
+                    if not detail or not detail.get("articleDetail"):
+                        log(f"  ({i+1}/{total}) 매물 {article_no} 응답 없음")
+                        continue
+
+                    complex_no = str(detail.get("articleDetail", {}).get("hscpNo", "") or "")
                     if complex_no:
-                        article_url = (
-                            f"https://new.land.naver.com/complexes/{complex_no}"
-                            f"?articleNo={article_no}"
-                        )
+                        article_url = f"https://new.land.naver.com/complexes/{complex_no}?articleNo={article_no}"
+
                     fields = extract_fields(detail, article_no, article_url)
                     cname = fields.get("complex_name", "")
-                    # 주상복합·도시형·생활주택 제외
                     if any(kw in cname for kw in ("주상복합", "도시형", "생활주택")):
-                        log(f"  ({i+1}/{len(article_list)}) 제외: {cname}")
+                        log(f"  ({i+1}/{total}) 제외: {cname}")
                         continue
-                    # 기보증금 없으면 전세 실거래가로 채우기 (인라인)
+
                     if not fields.get("rent_price") and complex_no:
                         try:
                             _ea = float(fields.get("area_exclusive", "").replace("평", "").strip() or "0") / 0.3025
-                        except:
+                        except Exception:
                             _ea = 0.0
 
                         if complex_no not in _pyeong_cache:
@@ -988,7 +999,7 @@ def search_region_articles(
                             _best = (min(_py_list, key=lambda p: abs(p["exclusiveArea"] - _ea))
                                      if _ea else _py_list[0])
                             _pno = _best["pyeongNo"]
-                            _rk  = (complex_no, _pno)
+                            _rk = (complex_no, _pno)
                             if _rk not in _rp_cache:
                                 _rp_cache[_rk] = page.evaluate(
                                     """async ([cno, pno, jwt]) => {
@@ -1011,12 +1022,11 @@ def search_region_articles(
                                 )
                             _rp = _rp_cache.get(_rk)
                             if _rp:
-                                _ps  = (_rp.get("formattedPrice") or "").strip()
-                                _dt  = (_rp.get("formattedTradeYearMonth") or "")[:7]
+                                _ps = (_rp.get("formattedPrice") or "").strip()
+                                _dt = (_rp.get("formattedTradeYearMonth") or "")[:7]
                                 if _ps:
-                                    _dt  = _dt or datetime.now().strftime("%Y.%m")
+                                    _dt = _dt or datetime.now().strftime("%Y.%m")
                                     fields["rent_price"] = f"{_ps} ({_dt}. 거래내역)"
-
 
                     all_fields.append(fields)
                     if on_article:
@@ -1024,19 +1034,12 @@ def search_region_articles(
                             on_article(fields)
                         except Exception as e:
                             log(f"  ⚠ 즉시저장 콜백 오류(수집은 계속): {e}")
-                    log(
-                        f"  ({i+1}/{len(article_list)}) "
-                        f"{cname} — {fields.get('price_main', '')}"
-                    )
-                else:
-                    log(f"  ({i+1}/{len(article_list)}) 매물 {article_no} 응답 없음")
+                    log(f"  ({i+1}/{total}) {cname} — {fields.get('price_main', '')}")
 
-            except Exception as e:
-                log(f"  ({i+1}/{len(article_list)}) 매물 {article_no} 오류: {e}")
+                except Exception as e:
+                    log(f"  ({i+1}/{total}) 매물 {article_no} 오류: {e}")
 
-            if (i + 1) % 10 == 0:
-                page.wait_for_timeout(300)
-
+            page.wait_for_timeout(150)
 
         browser.close()
 
@@ -1049,7 +1052,7 @@ def search_region_articles(
 def collect_articles_by_url_list(
     url_list: list[str], log=print, proxy: dict | None = None, on_article=None
 ) -> list[dict]:
-    """URL 목록으로 매물 상세 수집.  search_region_articles와 동일한 브라우저/JWT 방식 사용.
+    """URL 목록으로 매물 상세 수집.  search_region_articles와 동일한 배치 fetch 방식 사용.
 
     on_article: 매물 하나가 성공적으로 추출될 때마다 즉시 호출되는 콜백(선택).
         중간에 프로세스가 죽어도 이미 처리된 매물은 잃지 않도록 즉시 저장하는 데 사용.
@@ -1059,7 +1062,6 @@ def collect_articles_by_url_list(
     except ImportError:
         raise RuntimeError("playwright 패키지가 필요합니다.")
 
-    # URL → (article_no, complex_no_from_url) 파싱
     parsed: list[tuple[str, str, str]] = []   # (article_no, complex_no_hint, original_url)
     for url in url_list:
         try:
@@ -1081,7 +1083,7 @@ def collect_articles_by_url_list(
 
     all_fields: list[dict] = []
     _pyeong_cache: dict[str, list] = {}
-    _rp_cache: dict[tuple, dict]  = {}
+    _rp_cache: dict[tuple, dict] = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, proxy=proxy, args=_CHROMIUM_ARGS)
@@ -1089,7 +1091,6 @@ def collect_articles_by_url_list(
         page = ctx.new_page()
         page.on("request", _on_request)
 
-        # JWT 획득: search_region_articles와 동일한 페이지로 이동 (세션/쿠키 동일하게 확보)
         log("  브라우저 인증 중...")
         page.goto(
             "https://new.land.naver.com/complexes/338?ms=37.5762,127.0348,15&a=APT&b=A1&e=RETAIL",
@@ -1103,118 +1104,142 @@ def collect_articles_by_url_list(
 
         log("  인증 완료")
 
-        for i, (article_no, complex_no_hint, original_url) in enumerate(parsed):
-            if i > 0 and i % 50 == 0:
+        BATCH_SIZE = 6
+        RECYCLE_EVERY = 50
+        items = list(enumerate(parsed))
+        total = len(items)
+        processed = 0
+        next_recycle = RECYCLE_EVERY
+
+        for batch_start in range(0, total, BATCH_SIZE):
+            batch = items[batch_start:batch_start + BATCH_SIZE]
+
+            if processed >= next_recycle:
                 try:
                     old_page = page
                     page = ctx.new_page()
                     page.on("request", _on_request)
+                    page.goto(
+                        "https://new.land.naver.com/api/cortars?zoom=15&centerLat=37.5665&centerLon=126.9780",
+                        wait_until="commit", timeout=15000,
+                    )
                     old_page.close()
-                    log(f"  (메모리 정리를 위해 페이지 새로고침, {i}건째)")
+                    log(f"  (메모리 정리를 위해 페이지 새로고침, {processed}건째)")
                 except Exception as e:
                     log(f"  ⚠ 페이지 재생성 실패(계속 진행): {e}")
+                next_recycle += RECYCLE_EVERY
 
             try:
-                nav_url = (
-                    f"https://new.land.naver.com/complexes/{complex_no_hint}?articleNo={article_no}"
-                    if complex_no_hint
-                    else f"https://new.land.naver.com/articles/{article_no}"
-                )
-
-                try:
-                    with page.expect_response(
-                        lambda r, _a=article_no: f"/api/articles/{_a}" in r.url and r.status == 200,
-                        timeout=20000,
-                    ) as resp_info:
-                        page.goto(nav_url, wait_until="domcontentloaded", timeout=20000)
-                    detail = resp_info.value.json()
-                except Exception:
-                    detail = None
-
-                if not detail or not detail.get("articleDetail"):
-                    log(f"  ({i+1}/{len(parsed)}) 매물 {article_no} 유효 데이터 없음 — 만료/비공개 매물")
-                    continue
-
-                complex_no = str(detail.get("articleDetail", {}).get("hscpNo", "") or "")
-                article_url = (
-                    f"https://new.land.naver.com/complexes/{complex_no}?articleNo={article_no}"
-                    if complex_no else original_url
-                )
-
-                fields = extract_fields(detail, article_no, article_url)
-                cname  = fields.get("complex_name", "")
-
-                # 기보증금 없으면 전세 실거래가로 채우기 (search_region_articles와 동일)
-                if not fields.get("rent_price") and complex_no:
-                    try:
-                        _ea = float(fields.get("area_exclusive", "").replace("평", "").strip() or "0") / 0.3025
-                    except Exception:
-                        _ea = 0.0
-
-                    if complex_no not in _pyeong_cache:
-                        _pyeong_cache[complex_no] = page.evaluate(
-                            """async ([cno, jwt]) => {
+                details = page.evaluate(
+                    """async ([nos, jwt]) => {
+                        const fetchOne = async (no) => {
+                            try {
                                 const r = await fetch(
-                                    `https://new.land.naver.com/api/complexes/${cno}?sameAddressGroup=false`,
+                                    `https://new.land.naver.com/api/articles/${no}`,
                                     {headers: {'Authorization': 'Bearer ' + jwt,
                                                'Accept': 'application/json',
                                                'Referer': 'https://new.land.naver.com/'}}
                                 );
-                                if (!r.ok) return [];
-                                const d = await r.json();
-                                return (d.complexPyeongDetailList || []).map(p => ({
-                                    pyeongNo: String(p.pyeongNo),
-                                    exclusiveArea: parseFloat(p.exclusiveArea) || 0
-                                }));
-                            }""",
-                            [complex_no, jwt_token[0]],
-                        ) or []
+                                return r.ok ? await r.json() : null;
+                            } catch (e) {
+                                return null;
+                            }
+                        };
+                        return Promise.all(nos.map(fetchOne));
+                    }""",
+                    [[ano for _, (ano, _, _) in batch], jwt_token[0]],
+                )
+            except Exception as e:
+                log(f"  배치 조회 오류(건너뜀): {e}")
+                details = [None] * len(batch)
 
-                    _py_list = _pyeong_cache.get(complex_no, [])
-                    if _py_list:
-                        _best = (min(_py_list, key=lambda p: abs(p["exclusiveArea"] - _ea))
-                                 if _ea else _py_list[0])
-                        _pno = _best["pyeongNo"]
-                        _rk  = (complex_no, _pno)
-                        if _rk not in _rp_cache:
-                            _rp_cache[_rk] = page.evaluate(
-                                """async ([cno, pno, jwt]) => {
+            for (i, (article_no, complex_no_hint, original_url)), detail in zip(batch, details):
+                processed += 1
+                try:
+                    if not detail or not detail.get("articleDetail"):
+                        log(f"  ({i+1}/{total}) 매물 {article_no} 유효 데이터 없음 — 만료/비공개 매물")
+                        continue
+
+                    complex_no = str(detail.get("articleDetail", {}).get("hscpNo", "") or "") or complex_no_hint
+                    article_url = (
+                        f"https://new.land.naver.com/complexes/{complex_no}?articleNo={article_no}"
+                        if complex_no else original_url
+                    )
+
+                    fields = extract_fields(detail, article_no, article_url)
+                    cname = fields.get("complex_name", "")
+
+                    if not fields.get("rent_price") and complex_no:
+                        try:
+                            _ea = float(fields.get("area_exclusive", "").replace("평", "").strip() or "0") / 0.3025
+                        except Exception:
+                            _ea = 0.0
+
+                        if complex_no not in _pyeong_cache:
+                            _pyeong_cache[complex_no] = page.evaluate(
+                                """async ([cno, jwt]) => {
                                     const r = await fetch(
-                                        `https://new.land.naver.com/api/complexes/${cno}/prices/real?tradeType=B1&areaNo=${pno}&type=table`,
+                                        `https://new.land.naver.com/api/complexes/${cno}?sameAddressGroup=false`,
                                         {headers: {'Authorization': 'Bearer ' + jwt,
                                                    'Accept': 'application/json',
-                                                   'Referer': `https://new.land.naver.com/complexes/${cno}`}}
+                                                   'Referer': 'https://new.land.naver.com/'}}
                                     );
-                                    if (!r.ok) return null;
+                                    if (!r.ok) return [];
                                     const d = await r.json();
-                                    const months = d.realPriceOnMonthList || [];
-                                    if (!months.length) return null;
-                                    const latest = [...(months[0].realPriceList || [])];
-                                    if (!latest.length) return null;
-                                    latest.sort((a, b) => Number(b.tradeDate) - Number(a.tradeDate));
-                                    return latest[0];
+                                    return (d.complexPyeongDetailList || []).map(p => ({
+                                        pyeongNo: String(p.pyeongNo),
+                                        exclusiveArea: parseFloat(p.exclusiveArea) || 0
+                                    }));
                                 }""",
-                                [complex_no, _pno, jwt_token[0]],
-                            )
-                        _rp = _rp_cache.get(_rk)
-                        if _rp:
-                            _ps = (_rp.get("formattedPrice") or "").strip()
-                            _dt = (_rp.get("formattedTradeYearMonth") or "")[:7]
-                            if _ps:
-                                _dt = _dt or datetime.now().strftime("%Y.%m")
-                                fields["rent_price"] = f"{_ps} ({_dt}. 거래내역)"
+                                [complex_no, jwt_token[0]],
+                            ) or []
 
+                        _py_list = _pyeong_cache.get(complex_no, [])
+                        if _py_list:
+                            _best = (min(_py_list, key=lambda p: abs(p["exclusiveArea"] - _ea))
+                                     if _ea else _py_list[0])
+                            _pno = _best["pyeongNo"]
+                            _rk = (complex_no, _pno)
+                            if _rk not in _rp_cache:
+                                _rp_cache[_rk] = page.evaluate(
+                                    """async ([cno, pno, jwt]) => {
+                                        const r = await fetch(
+                                            `https://new.land.naver.com/api/complexes/${cno}/prices/real?tradeType=B1&areaNo=${pno}&type=table`,
+                                            {headers: {'Authorization': 'Bearer ' + jwt,
+                                                       'Accept': 'application/json',
+                                                       'Referer': `https://new.land.naver.com/complexes/${cno}`}}
+                                        );
+                                        if (!r.ok) return null;
+                                        const d = await r.json();
+                                        const months = d.realPriceOnMonthList || [];
+                                        if (!months.length) return null;
+                                        const latest = [...(months[0].realPriceList || [])];
+                                        if (!latest.length) return null;
+                                        latest.sort((a, b) => Number(b.tradeDate) - Number(a.tradeDate));
+                                        return latest[0];
+                                    }""",
+                                    [complex_no, _pno, jwt_token[0]],
+                                )
+                            _rp = _rp_cache.get(_rk)
+                            if _rp:
+                                _ps = (_rp.get("formattedPrice") or "").strip()
+                                _dt = (_rp.get("formattedTradeYearMonth") or "")[:7]
+                                if _ps:
+                                    _dt = _dt or datetime.now().strftime("%Y.%m")
+                                    fields["rent_price"] = f"{_ps} ({_dt}. 거래내역)"
 
-                all_fields.append(fields)
-                if on_article:
-                    try:
-                        on_article(fields)
-                    except Exception as e:
-                        log(f"  ⚠ 즉시저장 콜백 오류(수집은 계속): {e}")
-                log(f"  ({i+1}/{len(parsed)}) {cname} — {fields.get('price_main', '')}")
+                    all_fields.append(fields)
+                    if on_article:
+                        try:
+                            on_article(fields)
+                        except Exception as e:
+                            log(f"  ⚠ 즉시저장 콜백 오류(수집은 계속): {e}")
+                    log(f"  ({i+1}/{total}) {cname} — {fields.get('price_main', '')}")
 
-            except Exception as e:
-                log(f"  ({i+1}/{len(parsed)}) 매물 {article_no} 오류: {e}")
+                except Exception as e:
+                    log(f"  ({i+1}/{total}) 매물 {article_no} 오류: {e}")
+
+            page.wait_for_timeout(150)
 
         browser.close()
 
