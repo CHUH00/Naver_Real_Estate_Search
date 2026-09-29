@@ -872,9 +872,9 @@ tbody td a:hover { text-decoration: underline; }
               <div class="form-row">
                 <div class="form-label">매매가</div>
                 <div class="range-row">
-                  <input type="number" id="f-price-min" placeholder="최소 (만원)" style="flex:1">
+                  <input type="number" id="f-price-min" placeholder="최소 (억)" step="0.1" style="flex:1">
                   <span class="range-sep">~</span>
-                  <input type="number" id="f-price-max" placeholder="최대 (만원)" style="flex:1">
+                  <input type="number" id="f-price-max" placeholder="최대 (억)" step="0.1" style="flex:1">
                 </div>
               </div>
               <div class="form-row">
@@ -944,9 +944,9 @@ https://new.land.naver.com/articles/..."></textarea>
               <div class="form-row">
                 <div class="form-label">매매가</div>
                 <div class="range-row">
-                  <input type="number" id="f2-price-min" placeholder="최소 (만원)" style="flex:1">
+                  <input type="number" id="f2-price-min" placeholder="최소 (억)" step="0.1" style="flex:1">
                   <span class="range-sep">~</span>
-                  <input type="number" id="f2-price-max" placeholder="최대 (만원)" style="flex:1">
+                  <input type="number" id="f2-price-max" placeholder="최대 (억)" step="0.1" style="flex:1">
                 </div>
               </div>
               <div class="form-row">
@@ -1454,9 +1454,15 @@ function toggleFilter2() {
 // ── Get filters ───────────────────────────────────────────────────────────────
 function getFilters(prefix = 'f') {
   const isUrl = prefix === 'f2';
+  // 입력창은 억 단위(사용자 친화적)로 받고, 서버 필터 로직은 만원 단위를
+  // 기준으로 비교하므로(_parse_price) 여기서 변환해서 보낸다.
+  const eokToManwon = (v) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? String(Math.round(n * 10000)) : '';
+  };
   return {
-    price_min:     document.getElementById(prefix + '-price-min')?.value || '',
-    price_max:     document.getElementById(prefix + '-price-max')?.value || '',
+    price_min:     eokToManwon(document.getElementById(prefix + '-price-min')?.value),
+    price_max:     eokToManwon(document.getElementById(prefix + '-price-max')?.value),
     area_min:      document.getElementById(prefix + '-area-min')?.value || '',
     area_max:      document.getElementById(prefix + '-area-max')?.value || '',
     directions:    isUrl ? [...selectedDirs2] : [...selectedDirs],
