@@ -641,6 +641,61 @@ tbody td a:hover { text-decoration: underline; }
 *::-webkit-scrollbar { width: 4px; height: 4px; }
 *::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 
+/* ── Mobile (iPhone 등 좁은 화면) ──────────────────────────────────────
+   기본 레이아웃은 데스크탑 전용 2단 그리드(왼쪽 380px 고정 + 오른쪽 로그)로
+   짜여 있어, 폰 화면 폭에서는 잘리거나 옆으로 밀려나 보였다. 아래는 그
+   2단 그리드를 세로로 쌓고, 페이지 자체가 자연스럽게 스크롤되도록 바꾼다. */
+@media (max-width: 860px) {
+  html, body { height: auto; }
+
+  .app {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    grid-template-rows: auto 1fr;
+  }
+
+  .header {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 10px 14px;
+    row-gap: 8px;
+  }
+  .header-logo { flex: 1 0 100%; font-size: 16px; }
+  .header-spacer { display: none; flex-basis: 0; }
+
+  .main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    overflow: visible;
+  }
+
+  .panel-left {
+    border-right: none;
+    border-bottom: 8px solid var(--bg);
+    overflow: visible;
+  }
+  .panel-scroll {
+    overflow-y: visible;
+    padding: 12px 14px 16px;
+  }
+
+  .panel-right {
+    overflow: visible;
+    min-height: 60vh;
+  }
+  .log-body { overflow-y: visible; max-height: none; }
+
+  .form-label { min-width: 52px; font-size: 11px; }
+
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    max-width: none;
+    max-height: 92vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+}
+
 /* ── Toast ──────────────────────────────────────────────────────────── */
 .toast-container {
   position: fixed;
