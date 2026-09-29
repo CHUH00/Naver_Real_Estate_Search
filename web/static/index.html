@@ -1445,7 +1445,7 @@ async function startJob(endpoint, body, btn) {
   }
 
   if (!res.job_id) {
-    toast('작업 시작 실패', 'error');
+    toast(res.error || '작업 시작 실패', 'error');
     setRunning(false, btn);
     return;
   }
