@@ -848,6 +848,16 @@ tbody td a:hover { text-decoration: underline; }
             </div>
           </div>
 
+          <div class="form-row" style="align-items:center; gap:10px; margin-top:10px;">
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;">
+              <input type="checkbox" id="use-agent-mode" onchange="onAgentModeToggle()">
+              아이폰 없이 웹으로만 수집 (베타)
+            </label>
+            <button type="button" class="btn sm" id="btn-agent-setup" onclick="openAgentSetup()" style="display:none">
+              북마클릿 설정
+            </button>
+          </div>
+
           <div class="action-row">
             <button class="btn primary btn-full" id="btn-start-region" onclick="startRegionScrape()">
               수집 시작
@@ -967,6 +977,34 @@ https://new.land.naver.com/articles/..."></textarea>
         </table>
       </div>
       <div class="modal-empty" id="modal-empty" style="display:none">수집된 데이터가 없습니다</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="agent-modal-overlay" onclick="closeAgentSetup()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">폰 없이 웹으로 수집 (베타)</div>
+      <button class="modal-close" onclick="closeAgentSetup()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px; line-height:1.7; margin-bottom:14px;">
+        네이버가 서버 IP를 막기 때문에, 아이폰 앱 없이 하려면 <b>Safari에서 실제 네이버 부동산 사이트를
+        직접 열어둔 탭</b>이 그 역할을 대신해야 해요. 아래 순서대로 한 번만 설정하면 계속 재사용할 수 있어요.
+      </p>
+      <ol style="font-size:13px; line-height:1.9; padding-left:18px; margin-bottom:14px;">
+        <li>아이폰 Safari로 아무 페이지나 열고 <b>공유 → 즐겨찾기(북마크) 추가</b></li>
+        <li>즐겨찾기 목록에서 방금 만든 북마크를 <b>편집</b></li>
+        <li>이름은 아무거나(예: "매물수집기 에이전트")로 바꾸고, <b>주소(URL) 칸의 내용을 전부 지운 뒤</b> 아래 코드를 그 자리에 붙여넣기</li>
+      </ol>
+      <div style="background:#F6F7F9; border-radius:12px; padding:10px; font:11px monospace;
+                  word-break:break-all; max-height:120px; overflow:auto; margin-bottom:10px;" id="bookmarklet-code"></div>
+      <button type="button" class="btn sm" onclick="copyBookmarklet()">코드 복사</button>
+      <p style="font-size:13px; line-height:1.7; margin-top:16px;">
+        저장한 뒤에는: <b>new.land.naver.com</b>을 Safari로 열고 → 지도를 손가락으로 살짝 움직여서
+        인증정보가 잡히게 한 뒤 → 방금 만든 즐겨찾기를 탭하세요. 화면 아래 상태 표시가 뜨면 준비 완료 —
+        그 탭을 그대로 켜둔 채로 여기서 "수집 시작"을 누르면 자동으로 진행됩니다.
+      </p>
     </div>
   </div>
 </div>
@@ -1389,12 +1427,79 @@ function buildRegionList() {
   return results;
 }
 
+// ── 에이전트 모드 (북마클릿, 폰 없이) ───────────────────────────────────────────
+function onAgentModeToggle() {
+  const on = document.getElementById('use-agent-mode').checked;
+  document.getElementById('btn-agent-setup').style.display = on ? '' : 'none';
+}
+
+function buildBookmarklet(sid) {
+  const server = location.origin;
+  const srcBase = server + '/static/agent.js?server=' + encodeURIComponent(server) + '&session_id=' + sid + '&t=';
+  return "javascript:(function(){var s=document.createElement('script');s.src='" + srcBase + "'+Date.now();document.body.appendChild(s);})()";
+}
+
+async function openAgentSetup() {
+  const sid = await getSessionId();
+  if (!sid) { toast('세션 오류. 새로고침 후 다시 시도하세요.', 'error'); return; }
+  document.getElementById('bookmarklet-code').textContent = buildBookmarklet(sid);
+  document.getElementById('agent-modal-overlay').classList.add('open');
+}
+
+function closeAgentSetup() {
+  document.getElementById('agent-modal-overlay').classList.remove('open');
+}
+
+function copyBookmarklet() {
+  const code = document.getElementById('bookmarklet-code').textContent;
+  navigator.clipboard.writeText(code).then(
+    () => toast('복사했습니다 — 즐겨찾기 편집 화면에 붙여넣으세요', 'info'),
+    () => toast('복사 실패 — 직접 길게 눌러 선택해서 복사해 주세요', 'error')
+  );
+}
+
+async function startAgentRegionScrape(regions) {
+  const sid = await getSessionId();
+  if (!sid) { toast('세션 오류. 새로고침 후 다시 시도하세요.', 'error'); return; }
+
+  clearLog();
+  const btn = document.getElementById('btn-start-region');
+  setRunning(true, btn);
+  appendLog('아이폰 없이 웹 에이전트로 수집합니다 — Safari에서 북마클릿을 실행해 두셨는지 확인하세요.', 'accent');
+
+  let res;
+  try {
+    const r = await fetch('/api/agent/enqueue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sid, regions, max_count: 500, filters: getFilters('f') }),
+    });
+    res = await r.json();
+  } catch (e) {
+    toast('서버 연결 실패: ' + e.message, 'error');
+    setRunning(false, btn);
+    return;
+  }
+
+  if (!res.job_id) {
+    toast(res.error || '작업 시작 실패', 'error');
+    setRunning(false, btn);
+    return;
+  }
+  connectWs(res.job_id, btn);
+}
+
 // ── WebSocket & scraping ──────────────────────────────────────────────────────
 async function startRegionScrape() {
   if (isRunning) { stopScrape(); return; }
 
   const regions = buildRegionList();
   if (regions.length === 0) { toast('구를 먼저 선택하세요', 'error'); return; }
+
+  if (document.getElementById('use-agent-mode').checked) {
+    await startAgentRegionScrape(regions);
+    return;
+  }
 
   const sid = await getSessionId();
   if (!sid) { toast('세션 오류. 새로고침 후 다시 시도하세요.', 'error'); return; }

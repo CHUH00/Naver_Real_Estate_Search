@@ -29,7 +29,7 @@ from naver_land_scraper import (
     parse_url,
     search_region_articles,
 )
-from . import relay
+from . import agent, relay
 
 app = FastAPI(title="네이버 부동산 매물 수집기")
 
@@ -194,6 +194,28 @@ class UrlRequest(BaseModel):
     session_id: str
     urls: list[str]
     filters: dict = {}
+
+
+class AgentEnqueueRequest(BaseModel):
+    session_id: str
+    regions: list[str]
+    max_count: int = 500
+    filters: dict = {}
+
+
+class AgentReportRequest(BaseModel):
+    job_id: str
+    articles: list[dict] = []
+
+
+class AgentJobRequest(BaseModel):
+    job_id: str
+
+
+class AgentLogRequest(BaseModel):
+    job_id: str
+    msg: str
+    tag: str = "dim"
 
 
 # ── Filter logic ──────────────────────────────────────────────────────────────
@@ -483,6 +505,60 @@ async def cancel_scrape(job_id: str):
         loop.call_soon_threadsafe(q.put_nowait, {
             "type": "log", "msg": "■ 종료 요청됨 — 지금까지 수집된 매물까지 저장하고 정리 중...", "tag": "error",
         })
+    return {"ok": True}
+
+
+# ── Agent (북마클릿, 폰 없이 브라우저 탭이 직접 네이버에 접속) ──────────────────
+
+@app.post("/api/agent/enqueue")
+async def agent_enqueue(req: AgentEnqueueRequest):
+    excel_path = _get_session_file(req.session_id)
+    q: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+    log_fn = _make_log_fn(q, loop)
+
+    job_id, resolved_count = await asyncio.to_thread(
+        agent.create_job, req.session_id, req.regions, req.filters, req.max_count, q, loop, excel_path, log_fn,
+    )
+    _jobs[job_id] = q
+    if resolved_count == 0:
+        loop.call_soon_threadsafe(q.put_nowait, {
+            "type": "done", "ok": 0, "skip": 0, "filtered": 0, "rows": _count_rows(excel_path),
+        })
+    return {"job_id": job_id}
+
+
+@app.get("/api/agent/current_job")
+async def agent_current_job(session_id: str):
+    """북마클릿이 session_id만 가지고 자기 작업을 찾을 때 사용 (job_id를 몰라도 됨)."""
+    return {"job_id": agent.current_job_for_session(session_id)}
+
+
+@app.get("/api/agent/poll")
+async def agent_poll(job_id: str):
+    region = await asyncio.to_thread(agent.next_region, job_id, _count_rows)
+    if region is None:
+        return {"done": True}
+    return {"done": False, **region}
+
+
+@app.post("/api/agent/report")
+async def agent_report(req: AgentReportRequest):
+    result = await asyncio.to_thread(agent.report_articles, req.job_id, req.articles, _passes_filter)
+    return result
+
+
+@app.post("/api/agent/region_done")
+async def agent_region_done(req: AgentJobRequest):
+    await asyncio.to_thread(agent.region_done, req.job_id)
+    return {"ok": True}
+
+
+@app.post("/api/agent/log")
+async def agent_log(req: AgentLogRequest):
+    job = agent.get_job(req.job_id)
+    if job:
+        job.log(req.msg, req.tag)
     return {"ok": True}
 
 
