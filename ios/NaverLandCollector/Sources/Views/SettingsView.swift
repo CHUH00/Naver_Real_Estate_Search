@@ -10,6 +10,14 @@ struct SettingsView: View {
     @State private var shareURL: URL?
     @State private var showResetConfirm = false
 
+    private var webURL: String? {
+        guard let sid = model.sessionID else { return nil }
+        let base = APIClient.shared.baseURLString.trimmingCharacters(in: .whitespaces)
+        guard !base.isEmpty else { return nil }
+        let trimmedBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+        return "\(trimmedBase)/?session_id=\(sid)"
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -95,6 +103,55 @@ struct SettingsView: View {
                         .background(Theme.accent.opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                         .disabled(isDownloading)
+                    }
+
+                    Card {
+                        SectionHeader("desktopcomputer", "웹에서 열기", subtitle: "컴퓨터 브라우저로도 접속 가능")
+                            .padding(.bottom, 8)
+                        Text("아래 주소를 컴퓨터 브라우저에 그대로 열면, 이 아이폰과 같은 데이터를 보고 수집도 실행할 수 있어요. (아이폰 앱이 중계 연결을 유지하고 있어야 실제 수집이 동작합니다.)")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.bottom, 10)
+                        if let webURL {
+                            Text(webURL)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(Theme.textPrimary)
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Theme.background)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                                .padding(.bottom, 10)
+
+                            HStack(spacing: 10) {
+                                Button {
+                                    UIPasteboard.general.string = webURL
+                                } label: {
+                                    Label("링크 복사", systemImage: "doc.on.doc")
+                                        .font(.subheadline.weight(.medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                }
+                                .foregroundStyle(Theme.accent)
+                                .background(Theme.accent.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+
+                                Button {
+                                    shareURL = URL(string: webURL)
+                                } label: {
+                                    Label("공유", systemImage: "square.and.arrow.up")
+                                        .font(.subheadline.weight(.medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                }
+                                .foregroundStyle(Theme.accent)
+                                .background(Theme.accent.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                            }
+                        } else {
+                            Text("세션이 아직 준비되지 않았습니다")
+                                .font(.caption)
+                                .foregroundStyle(Theme.textFaint)
+                        }
                     }
 
                     Card {
